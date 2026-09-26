@@ -103,7 +103,7 @@ def main():
          {t_id: [rooms["dm"]]})
     for i in range(150):
         send(t_tok if i % 2 == 0 else f_tok, rooms["main"], text_for(i))
-        if i == 147:
+        if i in (146, 147):
             send_image(f_tok, rooms["main"])
     for i in range(10):
         send(f_tok if i % 2 == 0 else t_tok, rooms["side"], "side " + text_for(i))
