@@ -167,7 +167,7 @@ if [ ! -f "$STATE/gomuks-verified" ]; then
 		exit 1
 	fi
 	for _ in $(seq 1 100); do
-		grep -q "Saving account to database\|Device verification state" "$GM_ROOT/logs/gomuks.log" 2>/dev/null && break
+		grep -qE "Saving account to database|Device verification state" "$GM_ROOT/logs/gomuks.log" 2>/dev/null && break
 		sleep 0.2
 	done
 	key=$(gexec generate_recovery_key '{}')
