@@ -9,7 +9,6 @@ final class GomuksUITests: XCTestCase {
 
     func testLoginRoomAndKeyboard() throws {
         let app = XCUIApplication()
-        let launched = Date()
         app.launch()
 
         let connect = app.buttons["Connect"]
@@ -24,11 +23,12 @@ final class GomuksUITests: XCTestCase {
         password.tap()
         password.typeText("adminpass")
         attach(app, "setup")
+        let connected = Date()
         connect.tap()
 
         let mainRoom = app.webViews.staticTexts["Main Room"]
         wait(mainRoom, 45, app)
-        print("PERF launch_to_room_list_s=\(Date().timeIntervalSince(launched))")
+        print("PERF connect_to_room_list_s=\(Date().timeIntervalSince(connected))")
         attach(app, "room-list")
 
         let settings = app.webViews.buttons["Server and account"]
@@ -54,8 +54,11 @@ final class GomuksUITests: XCTestCase {
         sleep(2)
         attach(app, "keyboard")
 
-        let keyboardTop = keyboard.frame.minY
-        print("GEOMETRY newest=\(newest.frame) composer=\(composer.frame) keyboard=\(keyboard.frame)")
+        let assistant = app.otherElements["SystemInputAssistantView"]
+        let keyboardTop = assistant.exists ? min(assistant.frame.minY, keyboard.frame.minY) : keyboard.frame.minY
+        let webView = app.webViews.firstMatch
+        print("GEOMETRY newest=\(newest.frame) composer=\(composer.frame) webview=\(webView.frame) keyboardTop=\(keyboardTop)")
+        XCTAssertEqual(webView.frame.maxY, keyboardTop, accuracy: 1, "web view does not end at keyboard")
         XCTAssertFalse(app.buttons["Done"].exists, "input accessory bar is visible")
         XCTAssertLessThanOrEqual(composer.frame.maxY, keyboardTop + 1, "composer hidden by keyboard")
         XCTAssertLessThan(keyboardTop - composer.frame.maxY, 40, "gap between composer and keyboard")
