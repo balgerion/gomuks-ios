@@ -4,7 +4,17 @@ import Security
 struct Credentials {
     var server: URL
     var username: String
-    var password: String
+    private var enteredPassword: String?
+
+    var password: String {
+        enteredPassword ?? Self.loadPassword() ?? ""
+    }
+
+    init(server: URL, username: String, password: String? = nil) {
+        self.server = server
+        self.username = username
+        enteredPassword = password
+    }
 
     private static let serverKey = "server_url"
     private static let usernameKey = "username"
@@ -16,7 +26,7 @@ struct Credentials {
               let server = parseServer(raw),
               let username = defaults.string(forKey: usernameKey)
         else { return nil }
-        return Credentials(server: server, username: username, password: loadPassword() ?? "")
+        return Credentials(server: server, username: username)
     }
 
     func save() {
