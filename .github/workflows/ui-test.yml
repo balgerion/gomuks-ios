@@ -8,18 +8,29 @@ on:
       - Tests/testbed/**
       - .github/workflows/ui-test.yml
 
+concurrency:
+  group: ui-test-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   GOMUKS_REF: 90ccd9323d104d72df4ccab078cc56df866accba
 
 jobs:
   ui-test:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 25
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       HOMEBREW_NO_INSTALL_CLEANUP: "1"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Boot simulator
+        run: |
+          defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
+          device=$(xcrun simctl list devices available | grep -m1 -oE 'iPhone 16( Pro)? \(' | sed 's/ ($//')
+          echo "SIM_DEVICE=$device" >> "$GITHUB_ENV"
+          xcrun simctl boot "$device" &
 
       - uses: actions/checkout@v4
         with:
@@ -77,11 +88,11 @@ jobs:
           xcodegen generate
 
       - name: Run UI tests
+        timeout-minutes: 12
         run: |
-          defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
-          device=$(xcrun simctl list devices available | grep -m1 -oE 'iPhone 16( Pro)? \(' | sed 's/ ($//')
           xcodebuild test -project Gomuks.xcodeproj -scheme Gomuks \
-            -destination "platform=iOS Simulator,name=$device" \
+            -destination "platform=iOS Simulator,name=$SIM_DEVICE" \
+            -parallel-testing-enabled NO \
             -resultBundlePath build/UITests.xcresult \
             CODE_SIGNING_ALLOWED=NO > build-test.log 2>&1 || status=$?
           grep -E "PERF|GEOMETRY|error:|Test Case|Executed" build-test.log || true
