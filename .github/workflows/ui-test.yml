@@ -13,6 +13,7 @@ concurrency:
 env:
   GOMUKS_REF: 90ccd9323d104d72df4ccab078cc56df866accba
   PLAYER_REF: 781a17a57cbba449a9e21f93b8fa4a445d85da2d
+  SYNAPSE_CACHE_KEY: synapse-venv-macos-py3.12-v2
 
 jobs:
   ui-test:
@@ -48,7 +49,7 @@ jobs:
         id: synapse-venv
         with:
           path: Tests/testbed/state/venv
-          key: synapse-venv-macos-py3.12-v2
+          key: ${{ env.SYNAPSE_CACHE_KEY }}
 
       - uses: actions/setup-go@v5
         if: steps.gomuks-bin.outputs.cache-hit != 'true'
@@ -87,7 +88,7 @@ jobs:
         if: steps.synapse-venv.outputs.cache-hit != 'true'
         with:
           path: Tests/testbed/state/venv
-          key: synapse-venv-macos-py3.12-v2
+          key: ${{ env.SYNAPSE_CACHE_KEY }}
 
       - name: Generate project
         run: |
