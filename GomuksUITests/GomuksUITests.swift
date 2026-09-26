@@ -1,13 +1,13 @@
 import XCTest
 
 final class GomuksUITests: XCTestCase {
-    private let server = ProcessInfo.processInfo.environment["TEST_GOMUKS_URL"] ?? "http://localhost:29325"
+    private let server = "http://localhost:29325"
 
     override func setUp() {
         continueAfterFailure = false
     }
 
-    func testLoginRoomAndKeyboard() throws {
+    func testMainFlow() throws {
         let app = XCUIApplication()
         app.launch()
 
