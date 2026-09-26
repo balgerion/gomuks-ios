@@ -22,6 +22,7 @@ final class Browser: NSObject, ObservableObject {
         configuration.websiteDataStore = .default()
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
+        configuration.preferences.isElementFullscreenEnabled = true
         webView = GomuksWebView(frame: .zero, configuration: configuration)
         super.init()
         webView.isInspectable = true
@@ -40,6 +41,9 @@ final class Browser: NSObject, ObservableObject {
         )
         contentController.addUserScript(
             WKUserScript(source: ImageViewerScript.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        )
+        contentController.addUserScript(
+            WKUserScript(source: InlineVideoScript.script(subframesOnly: true), injectionTime: .atDocumentStart, forMainFrameOnly: false)
         )
     }
 
@@ -186,17 +190,20 @@ final class Browser: NSObject, ObservableObject {
     private func openExternally(_ url: URL) {
         if url.scheme?.lowercased() == "matrix" {
             open(url)
+        } else if let watch = VideoPlayer.watchURL(for: url) {
+            present(VideoPlayerController(url: watch))
         } else {
             UIApplication.shared.open(url)
         }
     }
 
-    private func present(_ alert: UIAlertController) -> Bool {
+    @discardableResult
+    private func present(_ controller: UIViewController) -> Bool {
         guard var presenter = webView.window?.rootViewController else { return false }
         while let presented = presenter.presentedViewController {
             presenter = presented
         }
-        presenter.present(alert, animated: true)
+        presenter.present(controller, animated: true)
         return true
     }
 
@@ -372,6 +379,13 @@ extension Browser: WKScriptMessageHandler {
             return ViewerImage(url: url, name: entry["alt"] as? String ?? "")
         }
         guard images.indices.contains(index) else { return }
+        if let link = (fields["link"] as? String).flatMap(URL.init(string:)),
+           let player = VideoPlayer.iframeURL(for: link),
+           let argument = try? JSONSerialization.data(withJSONObject: [player.absoluteString]),
+           let json = String(data: argument, encoding: .utf8) {
+            webView.evaluateJavaScript("window.__gomuksEmbedVideo(...\(json))")
+            return
+        }
         guard !showingImage else { return }
         showingImage = true
         Task {
