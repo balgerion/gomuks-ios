@@ -43,6 +43,23 @@ def send(token, room_id, text):
          {"msgtype": "m.text", "body": text})
 
 
+def send_image(token, room_id):
+    import io
+    from PIL import Image
+    buffer = io.BytesIO()
+    Image.new("RGB", (800, 600), (200, 40, 40)).save(buffer, format="PNG")
+    body = buffer.getvalue()
+    req = urllib.request.Request(HS + "/_matrix/media/v3/upload?filename=test.png", data=body, method="POST")
+    req.add_header("Content-Type", "image/png")
+    req.add_header("Authorization", "Bearer " + token)
+    with OPENER.open(req) as resp:
+        uri = json.loads(resp.read())["content_uri"]
+    TXN[0] += 1
+    call("PUT", f"/_matrix/client/v3/rooms/{urllib.parse.quote(room_id)}/send/m.room.message/{TXN[0]}", token,
+         {"msgtype": "m.image", "body": "test.png", "url": uri,
+          "info": {"mimetype": "image/png", "w": 800, "h": 600, "size": len(body)}})
+
+
 def resolve(alias):
     status, resp = call("GET", "/_matrix/client/v3/directory/room/" + urllib.parse.quote(alias), ok=(200, 404))
     return resp.get("room_id") if status == 200 else None
@@ -86,6 +103,8 @@ def main():
          {t_id: [rooms["dm"]]})
     for i in range(150):
         send(t_tok if i % 2 == 0 else f_tok, rooms["main"], text_for(i))
+        if i == 147:
+            send_image(f_tok, rooms["main"])
     for i in range(10):
         send(f_tok if i % 2 == 0 else t_tok, rooms["side"], "side " + text_for(i))
     for i in range(6):
