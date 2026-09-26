@@ -32,17 +32,18 @@ jobs:
           echo "SIM_DEVICE=$device" >> "$GITHUB_ENV"
           xcrun simctl boot "$device" &
 
-      - uses: actions/checkout@v4
-        with:
-          repository: gomuks/gomuks
-          ref: ${{ env.GOMUKS_REF }}
-          path: gomuks-src
-
       - uses: actions/cache/restore@v4
         id: gomuks-bin
         with:
           path: gomuks-src/gomuks
           key: gomuks-bin-macos-${{ env.GOMUKS_REF }}
+
+      - uses: actions/checkout@v4
+        if: steps.gomuks-bin.outputs.cache-hit != 'true'
+        with:
+          repository: gomuks/gomuks
+          ref: ${{ env.GOMUKS_REF }}
+          path: gomuks-src
 
       - uses: actions/cache/restore@v4
         id: synapse-venv
