@@ -5,9 +5,6 @@ import WebKit
 final class Browser: NSObject, ObservableObject {
     static let shared = Browser()
     static let defaultServer = "https://gomuks.balgeriada.com"
-    private static let uriComponentAllowed = CharacterSet(
-        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()"
-    )
 
     @Published var needsSetup = false
     @Published private(set) var setupError: String?
@@ -18,11 +15,7 @@ final class Browser: NSObject, ObservableObject {
     private var showingImage = false
 
     override init() {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .default()
-        configuration.allowsInlineMediaPlayback = true
-        configuration.mediaTypesRequiringUserActionForPlayback = []
-        webView = GomuksWebView(frame: .zero, configuration: configuration)
+        webView = GomuksWebView(frame: .zero, configuration: .media())
         super.init()
         webView.isInspectable = true
         webView.allowsBackForwardNavigationGestures = true
@@ -31,7 +24,7 @@ final class Browser: NSObject, ObservableObject {
         webView.uiDelegate = self
         let contentController = webView.configuration.userContentController
         contentController.add(self, name: SettingsButton.messageName)
-        contentController.add(self, name: ImageViewerScript.messageName)
+        contentController.add(self, name: MediaScript.messageName)
         contentController.addUserScript(
             WKUserScript(source: SettingsButton.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
         )
@@ -39,7 +32,7 @@ final class Browser: NSObject, ObservableObject {
             WKUserScript(source: TimelineScroll.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
         )
         contentController.addUserScript(
-            WKUserScript(source: ImageViewerScript.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+            WKUserScript(source: MediaScript.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
         )
         contentController.addUserScript(
             WKUserScript(source: InlineVideoScript.script(subframesOnly: true), injectionTime: .atDocumentStart, forMainFrameOnly: false)
@@ -70,7 +63,7 @@ final class Browser: NSObject, ObservableObject {
             pendingURL = url
             return
         }
-        if let encoded = Self.encodeURIComponent(url.absoluteString) {
+        if let encoded = url.absoluteString.uriComponentEncoded {
             webView.evaluateJavaScript("location.hash = \"/uri/\(encoded)\"")
         }
     }
@@ -90,7 +83,7 @@ final class Browser: NSObject, ObservableObject {
 
     func connect(server raw: String, username: String, password: String) async {
         setupError = nil
-        guard let server = Credentials.parseServer(raw) else {
+        guard let server = URL(serverAddress: raw) else {
             setupError = "Invalid server address"
             return
         }
@@ -109,7 +102,7 @@ final class Browser: NSObject, ObservableObject {
     private func loadServer() -> URL? {
         guard let server = credentials?.server else { return nil }
         var target = server
-        if let pendingURL, let encoded = Self.encodeURIComponent(pendingURL.absoluteString) {
+        if let pendingURL, let encoded = pendingURL.absoluteString.uriComponentEncoded {
             var base = server.absoluteString
             while base.hasSuffix("/") {
                 base.removeLast()
@@ -172,15 +165,28 @@ final class Browser: NSObject, ObservableObject {
         }
     }
 
-    private static func encodeURIComponent(_ text: String) -> String? {
-        text.addingPercentEncoding(withAllowedCharacters: uriComponentAllowed)
-    }
-
     private static func withTrailingSlash(_ url: URL) -> URL {
         let text = url.absoluteString
         return text.hasSuffix("/") ? url : URL(string: text + "/") ?? url
     }
 
+    private var topPresenter: UIViewController? {
+        guard var presenter = webView.window?.rootViewController else { return nil }
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        return presenter
+    }
+
+    @discardableResult
+    private func present(_ controller: UIViewController) -> Bool {
+        guard let presenter = topPresenter else { return false }
+        presenter.present(controller, animated: true)
+        return true
+    }
+}
+
+extension Browser {
     private func isServer(_ url: URL) -> Bool {
         guard let server = credentials?.server else { return false }
         return Self.sameOrigin(url, server)
@@ -194,16 +200,6 @@ final class Browser: NSObject, ObservableObject {
         } else {
             UIApplication.shared.open(url)
         }
-    }
-
-    @discardableResult
-    private func present(_ controller: UIViewController) -> Bool {
-        guard var presenter = webView.window?.rootViewController else { return false }
-        while let presented = presenter.presentedViewController {
-            presenter = presented
-        }
-        presenter.present(controller, animated: true)
-        return true
     }
 
     private static func sameOrigin(_ a: URL, _ b: URL) -> Bool {
@@ -361,10 +357,13 @@ extension Browser: WKUIDelegate {
 
 extension Browser: WKScriptMessageHandler {
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        if message.name == ImageViewerScript.messageName {
+        switch message.name {
+        case MediaScript.messageName:
             showImage(message.body)
-        } else {
+        case SettingsButton.messageName:
             showSetup(error: nil)
+        default:
+            break
         }
     }
 
@@ -394,13 +393,29 @@ extension Browser: WKScriptMessageHandler {
             for cookie in cookies {
                 configuration.httpCookieStorage?.setCookie(cookie)
             }
+            guard let presenter = topPresenter, !(presenter is ImageViewerController) else { return }
             let viewer = ImageViewerController(images: images, startIndex: index, session: URLSession(configuration: configuration))
-            guard var presenter = webView.window?.rootViewController else { return }
-            while let presented = presenter.presentedViewController {
-                presenter = presented
-            }
-            guard !(presenter is ImageViewerController) else { return }
             presenter.present(viewer, animated: true)
         }
+    }
+}
+
+extension String {
+    private static let uriComponentAllowed = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()"
+    )
+
+    var uriComponentEncoded: String? {
+        addingPercentEncoding(withAllowedCharacters: Self.uriComponentAllowed)
+    }
+}
+
+extension WKWebViewConfiguration {
+    static func media() -> WKWebViewConfiguration {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .default()
+        configuration.allowsInlineMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        return configuration
     }
 }
