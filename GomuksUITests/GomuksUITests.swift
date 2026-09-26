@@ -13,7 +13,7 @@ final class GomuksUITests: XCTestCase {
         app.launch()
 
         let connect = app.buttons["Connect"]
-        XCTAssertTrue(connect.waitForExistence(timeout: 30))
+        wait(connect, 30, app)
         let serverField = app.textFields.element(boundBy: 0)
         serverField.tap()
         serverField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 60) + server)
@@ -27,30 +27,30 @@ final class GomuksUITests: XCTestCase {
         connect.tap()
 
         let mainRoom = app.webViews.staticTexts["Main Room"]
-        XCTAssertTrue(mainRoom.waitForExistence(timeout: 90))
+        wait(mainRoom, 90, app)
         print("PERF launch_to_room_list_s=\(Date().timeIntervalSince(launched))")
         attach(app, "room-list")
 
         let settings = app.webViews.buttons["Server and account"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 10))
+        wait(settings, 10, app)
         settings.tap()
-        XCTAssertTrue(connect.waitForExistence(timeout: 10))
+        wait(connect, 10, app)
         attach(app, "settings")
         app.buttons["Cancel"].tap()
-        XCTAssertTrue(mainRoom.waitForExistence(timeout: 10))
+        wait(mainRoom, 10, app)
 
         let opened = Date()
         mainRoom.tap()
         let newest = app.webViews.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '#149'")).firstMatch
-        XCTAssertTrue(newest.waitForExistence(timeout: 30))
+        wait(newest, 30, app)
         print("PERF open_room_s=\(Date().timeIntervalSince(opened))")
         attach(app, "room")
 
         let composer = app.webViews.textViews.firstMatch
-        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        wait(composer, 10, app)
         composer.tap()
         let keyboard = app.keyboards.firstMatch
-        XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+        wait(keyboard, 10, app)
         sleep(2)
         attach(app, "keyboard")
 
@@ -61,6 +61,16 @@ final class GomuksUITests: XCTestCase {
         XCTAssertLessThan(keyboardTop - composer.frame.maxY, 40, "gap between composer and keyboard")
         XCTAssertLessThanOrEqual(newest.frame.maxY, composer.frame.minY + 1, "newest message hidden behind composer")
         XCTAssertTrue(newest.isHittable, "newest message not visible")
+    }
+
+    private func wait(_ element: XCUIElement, _ timeout: TimeInterval, _ app: XCUIApplication,
+                      file: StaticString = #filePath, line: UInt = #line) {
+        if element.waitForExistence(timeout: timeout) {
+            return
+        }
+        attach(app, "failure")
+        print("TREE-BEGIN\n\(app.debugDescription)\nTREE-END")
+        XCTFail("not found: \(element)", file: file, line: line)
     }
 
     private func attach(_ app: XCUIApplication, _ name: String) {
