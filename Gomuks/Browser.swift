@@ -21,14 +21,13 @@ final class Browser: NSObject, ObservableObject {
         configuration.websiteDataStore = .default()
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
-        webView = WKWebView(frame: .zero, configuration: configuration)
+        webView = GomuksWebView(frame: .zero, configuration: configuration)
         super.init()
         webView.isInspectable = true
         webView.allowsBackForwardNavigationGestures = false
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.navigationDelegate = self
         webView.uiDelegate = self
-        webView.removeInputAccessoryView()
         let contentController = webView.configuration.userContentController
         contentController.add(self, name: SettingsButton.messageName)
         contentController.addUserScript(
@@ -44,7 +43,7 @@ final class Browser: NSObject, ObservableObject {
             return
         }
         Task {
-            if let error = await authenticate(credentials) {
+            if await !hasAuthCookie(for: credentials.server), let error = await authenticate(credentials) {
                 showSetup(error: error)
             } else {
                 loadServer()
@@ -54,9 +53,12 @@ final class Browser: NSObject, ObservableObject {
 
     func open(_ url: URL) {
         guard url.scheme?.lowercased() == "matrix" else { return }
-        pendingURL = url
-        if credentials != nil, webView.url != nil, !needsSetup {
-            loadServer()
+        guard credentials != nil, webView.url != nil, !needsSetup else {
+            pendingURL = url
+            return
+        }
+        if let encoded = Self.encodeURIComponent(url.absoluteString) {
+            webView.evaluateJavaScript("location.hash = \"/uri/\(encoded)\"")
         }
     }
 
@@ -93,8 +95,7 @@ final class Browser: NSObject, ObservableObject {
     private func loadServer() {
         guard let server = credentials?.server else { return }
         var target = server
-        if let pendingURL,
-           let encoded = pendingURL.absoluteString.addingPercentEncoding(withAllowedCharacters: Self.uriComponentAllowed) {
+        if let pendingURL, let encoded = Self.encodeURIComponent(pendingURL.absoluteString) {
             var base = server.absoluteString
             while base.hasSuffix("/") {
                 base.removeLast()
@@ -144,6 +145,20 @@ final class Browser: NSObject, ObservableObject {
         } catch {
             return error.localizedDescription
         }
+    }
+
+    private func hasAuthCookie(for server: URL) async -> Bool {
+        guard let host = server.host?.lowercased() else { return false }
+        let cookies = await webView.configuration.websiteDataStore.httpCookieStore.allCookies()
+        return cookies.contains {
+            $0.name == "gomuks_auth"
+                && $0.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) == host
+                && ($0.expiresDate ?? .distantFuture) > Date()
+        }
+    }
+
+    private static func encodeURIComponent(_ text: String) -> String? {
+        text.addingPercentEncoding(withAllowedCharacters: uriComponentAllowed)
     }
 
     private static func withTrailingSlash(_ url: URL) -> URL {
