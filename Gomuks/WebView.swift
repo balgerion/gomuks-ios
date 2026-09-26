@@ -1,13 +1,40 @@
 import SwiftUI
 import WebKit
 
-struct WebView: UIViewRepresentable {
+struct WebView: UIViewControllerRepresentable {
     let browser: Browser
 
-    func makeUIView(context: Context) -> WKWebView {
+    func makeUIViewController(context: Context) -> WebViewController {
         browser.start()
-        return browser.webView
+        return WebViewController(webView: browser.webView)
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) {}
+    func updateUIViewController(_ controller: WebViewController, context: Context) {}
+}
+
+final class WebViewController: UIViewController {
+    private let webView: WKWebView
+
+    init(webView: WKWebView) {
+        self.webView = webView
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(webView)
+        view.keyboardLayoutGuide.usesBottomSafeArea = false
+        NSLayoutConstraint.activate([
+            webView.topAnchor.constraint(equalTo: view.topAnchor),
+            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            webView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+        ])
+    }
 }
