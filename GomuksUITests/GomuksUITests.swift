@@ -48,11 +48,6 @@ final class GomuksUITests: XCTestCase {
         print("PERF open_room_s=\(Date().timeIntervalSince(opened))")
         attach(app, "room")
 
-        let showMedia = app.webViews.staticTexts["Show media"].firstMatch
-        wait(showMedia, 10, app)
-        for _ in 0..<5 where showMedia.exists {
-            showMedia.tap()
-        }
         let thumbnail = app.webViews.images["test.png"].firstMatch
         wait(thumbnail, 10, app)
         thumbnail.tap()
