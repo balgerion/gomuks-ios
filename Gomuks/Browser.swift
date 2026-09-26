@@ -59,11 +59,12 @@ final class Browser: NSObject, ObservableObject {
 
     func open(_ url: URL) {
         guard url.scheme?.lowercased() == "matrix" else { return }
-        guard credentials != nil, webView.url != nil, !needsSetup else {
-            pendingURL = url
-            return
-        }
-        if let encoded = url.absoluteString.uriComponentEncoded {
+        pendingURL = url
+        guard credentials != nil, !needsSetup else { return }
+        if webView.url == nil || webView.isLoading {
+            loadServer()
+        } else if let encoded = url.absoluteString.uriComponentEncoded {
+            pendingURL = nil
             webView.evaluateJavaScript("location.hash = \"/uri/\(encoded)\"")
         }
     }
