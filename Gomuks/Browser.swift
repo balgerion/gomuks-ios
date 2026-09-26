@@ -33,6 +33,9 @@ final class Browser: NSObject, ObservableObject {
         contentController.addUserScript(
             WKUserScript(source: SettingsButton.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
         )
+        contentController.addUserScript(
+            WKUserScript(source: TimelineScroll.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        )
     }
 
     func start() {
