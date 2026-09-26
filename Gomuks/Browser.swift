@@ -364,10 +364,14 @@ extension Browser: WKScriptMessageHandler {
 
     private func showImage(_ body: Any) {
         guard let fields = body as? [String: Any],
-              let src = fields["src"] as? String,
-              let url = URL(string: src)
+              let entries = fields["images"] as? [[String: Any]],
+              let index = fields["index"] as? Int
         else { return }
-        let name = fields["alt"] as? String ?? ""
+        let images = entries.compactMap { entry -> ViewerImage? in
+            guard let src = entry["src"] as? String, let url = URL(string: src) else { return nil }
+            return ViewerImage(url: url, name: entry["alt"] as? String ?? "")
+        }
+        guard images.indices.contains(index) else { return }
         guard !showingImage else { return }
         showingImage = true
         Task {
@@ -377,7 +381,7 @@ extension Browser: WKScriptMessageHandler {
             for cookie in cookies {
                 configuration.httpCookieStorage?.setCookie(cookie)
             }
-            let viewer = ImageViewerController(url: url, name: name, session: URLSession(configuration: configuration))
+            let viewer = ImageViewerController(images: images, startIndex: index, session: URLSession(configuration: configuration))
             guard var presenter = webView.window?.rootViewController else { return }
             while let presented = presenter.presentedViewController {
                 presenter = presented
