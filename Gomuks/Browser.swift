@@ -24,7 +24,7 @@ final class Browser: NSObject, ObservableObject {
         webView = GomuksWebView(frame: .zero, configuration: configuration)
         super.init()
         webView.isInspectable = true
-        webView.allowsBackForwardNavigationGestures = false
+        webView.allowsBackForwardNavigationGestures = true
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.navigationDelegate = self
         webView.uiDelegate = self
