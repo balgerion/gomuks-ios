@@ -15,6 +15,7 @@ final class Browser: NSObject, ObservableObject {
     let webView: WKWebView
     private var started = false
     private var pendingURL: URL?
+    private var showingImage = false
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -30,11 +31,15 @@ final class Browser: NSObject, ObservableObject {
         webView.uiDelegate = self
         let contentController = webView.configuration.userContentController
         contentController.add(self, name: SettingsButton.messageName)
+        contentController.add(self, name: ImageViewerScript.messageName)
         contentController.addUserScript(
             WKUserScript(source: SettingsButton.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
         )
         contentController.addUserScript(
             WKUserScript(source: TimelineScroll.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        )
+        contentController.addUserScript(
+            WKUserScript(source: ImageViewerScript.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
         )
     }
 
@@ -350,6 +355,35 @@ extension Browser: WKUIDelegate {
 
 extension Browser: WKScriptMessageHandler {
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        showSetup(error: nil)
+        if message.name == ImageViewerScript.messageName {
+            showImage(message.body)
+        } else {
+            showSetup(error: nil)
+        }
+    }
+
+    private func showImage(_ body: Any) {
+        guard let fields = body as? [String: Any],
+              let src = fields["src"] as? String,
+              let url = URL(string: src)
+        else { return }
+        let name = fields["alt"] as? String ?? ""
+        guard !showingImage else { return }
+        showingImage = true
+        Task {
+            defer { showingImage = false }
+            let cookies = await webView.configuration.websiteDataStore.httpCookieStore.allCookies()
+            let configuration = URLSessionConfiguration.ephemeral
+            for cookie in cookies {
+                configuration.httpCookieStorage?.setCookie(cookie)
+            }
+            let viewer = ImageViewerController(url: url, name: name, session: URLSession(configuration: configuration))
+            guard var presenter = webView.window?.rootViewController else { return }
+            while let presented = presenter.presentedViewController {
+                presenter = presented
+            }
+            guard !(presenter is ImageViewerController) else { return }
+            presenter.present(viewer, animated: true)
+        }
     }
 }
