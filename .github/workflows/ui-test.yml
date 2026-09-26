@@ -4,9 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - GomuksUITests/**
-      - Tests/testbed/**
-      - .github/workflows/ui-test.yml
+      - Tests/ui-test-trigger
 
 concurrency:
   group: ui-test-${{ github.ref }}
