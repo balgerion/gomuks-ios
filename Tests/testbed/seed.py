@@ -1,0 +1,95 @@
+import json
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+HS = "http://127.0.0.1:8008"
+OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+TXN = [int(time.time() * 1000)]
+
+
+def call(method, path, token=None, body=None, ok=(200,)):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(HS + path, data=data, method=method)
+    req.add_header("Content-Type", "application/json")
+    if token:
+        req.add_header("Authorization", "Bearer " + token)
+    try:
+        with OPENER.open(req) as resp:
+            return resp.status, json.loads(resp.read() or b"{}")
+    except urllib.error.HTTPError as err:
+        payload = json.loads(err.read() or b"{}")
+        if err.code in ok:
+            return err.code, payload
+        raise SystemExit(f"{method} {path} -> {err.code} {payload}")
+
+
+def login(user, password):
+    _, resp = call("POST", "/_matrix/client/v3/login", body={
+        "type": "m.login.password",
+        "identifier": {"type": "m.id.user", "user": user},
+        "password": password,
+        "initial_device_display_name": "seed-script",
+    })
+    return resp["access_token"], resp["user_id"]
+
+
+def send(token, room_id, text):
+    TXN[0] += 1
+    call("PUT", f"/_matrix/client/v3/rooms/{urllib.parse.quote(room_id)}/send/m.room.message/{TXN[0]}", token,
+         {"msgtype": "m.text", "body": text})
+
+
+def resolve(alias):
+    status, resp = call("GET", "/_matrix/client/v3/directory/room/" + urllib.parse.quote(alias), ok=(200, 404))
+    return resp.get("room_id") if status == 200 else None
+
+
+WORDS = ("lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore "
+         "et dolore magna aliqua enim ad minim veniam quis nostrud exercitation ullamco laboris nisi aliquip "
+         "ex ea commodo consequat duis aute irure in reprehenderit voluptate velit esse cillum").split()
+
+
+def text_for(i):
+    n = [3, 8, 15, 30, 60, 5, 120, 12][i % 8]
+    words = [WORDS[(i * 7 + k * 3) % len(WORDS)] for k in range(n)]
+    return f"#{i:03d} " + " ".join(words)
+
+
+def main():
+    t_tok, t_id = login("tester", "testpass")
+    f_tok, f_id = login("friend", "friendpass")
+    if resolve("#dm:localhost"):
+        print("already seeded")
+        return
+    if resolve("#main:localhost"):
+        raise SystemExit("partial seed detected, run setup.sh --reset")
+    rooms = {}
+    for alias, name, direct in (("main", "Main Room", False), ("side", "Side Room", False), (None, None, True)):
+        body = {"preset": "private_chat", "invite": [f_id]}
+        if alias:
+            body.update({"room_alias_name": alias, "name": name})
+        if direct:
+            body.update({"is_direct": True, "preset": "trusted_private_chat"})
+        _, resp = call("POST", "/_matrix/client/v3/createRoom", t_tok, body)
+        room_id = resp["room_id"]
+        call("POST", f"/_matrix/client/v3/join/{urllib.parse.quote(room_id)}", f_tok, {})
+        rooms[alias or "dm"] = room_id
+    call("PUT", f"/_matrix/client/v3/user/{urllib.parse.quote(t_id)}/account_data/m.direct", t_tok,
+         {f_id: [rooms["dm"]]})
+    call("PUT", f"/_matrix/client/v3/user/{urllib.parse.quote(f_id)}/account_data/m.direct", f_tok,
+         {t_id: [rooms["dm"]]})
+    for i in range(150):
+        send(t_tok if i % 2 == 0 else f_tok, rooms["main"], text_for(i))
+    for i in range(10):
+        send(f_tok if i % 2 == 0 else t_tok, rooms["side"], "side " + text_for(i))
+    for i in range(6):
+        send(f_tok if i % 2 == 0 else t_tok, rooms["dm"], "dm " + text_for(i))
+    call("PUT", "/_matrix/client/v3/directory/room/%23dm%3Alocalhost", t_tok, {"room_id": rooms["dm"]})
+    print(json.dumps(rooms))
+
+
+if __name__ == "__main__":
+    sys.exit(main())
