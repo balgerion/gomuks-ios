@@ -45,11 +45,13 @@ final class Browser: NSObject, ObservableObject {
             needsSetup = true
             return
         }
+        let target = loadServer()
         Task {
-            if await !hasAuthCookie(for: credentials.server), let error = await authenticate(credentials) {
+            guard await !hasAuthCookie(for: credentials.server) else { return }
+            if let error = await authenticate(credentials) {
                 showSetup(error: error)
-            } else {
-                loadServer()
+            } else if let target {
+                webView.load(URLRequest(url: target))
             }
         }
     }
@@ -95,8 +97,9 @@ final class Browser: NSObject, ObservableObject {
         loadServer()
     }
 
-    private func loadServer() {
-        guard let server = credentials?.server else { return }
+    @discardableResult
+    private func loadServer() -> URL? {
+        guard let server = credentials?.server else { return nil }
         var target = server
         if let pendingURL, let encoded = Self.encodeURIComponent(pendingURL.absoluteString) {
             var base = server.absoluteString
@@ -107,6 +110,7 @@ final class Browser: NSObject, ObservableObject {
         }
         pendingURL = nil
         webView.load(URLRequest(url: target))
+        return target
     }
 
     private func authenticate(_ credentials: Credentials) async -> String? {
