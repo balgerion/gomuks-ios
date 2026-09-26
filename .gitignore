@@ -4,3 +4,4 @@ build/
 Payload/
 DerivedData/
 .DS_Store
+Tests/testbed/state/
