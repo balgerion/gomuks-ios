@@ -18,9 +18,9 @@ enum ImageViewerScript {
                 root.classList.remove("ios-native-lightbox");
             }
         };
-        let lastPreview = null;
+        let lastContainer = null;
         window.__gomuksEmbedVideo = (src) => {
-            const container = lastPreview?.querySelector(".media-container");
+            const container = lastContainer;
             if (!container || container.querySelector("iframe.ios-inline-player")) {
                 return;
             }
@@ -55,10 +55,13 @@ enum ImageViewerScript {
                         images.splice(0, images.length, { src: src.href, alt: String(lightbox.alt || "") });
                         index = 0;
                     }
-                    const preview = [...document.querySelectorAll("div.url-preview .media-container img")]
-                        .find((img) => new URL(img.src, location.href).href === src.href);
-                    lastPreview = preview?.closest("div.url-preview") || null;
-                    const link = lastPreview?.querySelector(".title a")?.href || "";
+                    const clicked = [...document.querySelectorAll("div.timeline-view img")]
+                        .find((img) => new URL(img.getAttribute("data-full-src") || img.src, location.href).href === src.href);
+                    lastContainer = clicked?.closest(".media-container") || null;
+                    const preview = clicked?.closest("div.url-preview");
+                    const link = (preview
+                        ? preview.querySelector(".title a")?.href
+                        : lastContainer?.parentElement?.querySelector(".message-text a[href]")?.href) || "";
                     window.webkit.messageHandlers.\(messageName).postMessage({ images, index, link });
                     requestAnimationFrame(() => closeLightbox(0));
                     return;
