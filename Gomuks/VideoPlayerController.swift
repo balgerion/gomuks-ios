@@ -40,7 +40,6 @@ final class VideoPlayerController: UIViewController, WKNavigationDelegate, WKUID
         configuration.websiteDataStore = .default()
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
-        configuration.preferences.isElementFullscreenEnabled = true
         configuration.userContentController.addUserScript(
             WKUserScript(source: InlineVideoScript.script(subframesOnly: false), injectionTime: .atDocumentStart, forMainFrameOnly: false)
         )
