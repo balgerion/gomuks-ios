@@ -2,6 +2,11 @@ name: ui-test
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - GomuksUITests/**
+      - Tests/testbed/**
+      - .github/workflows/ui-test.yml
 
 env:
   GOMUKS_REF: 90ccd9323d104d72df4ccab078cc56df866accba
