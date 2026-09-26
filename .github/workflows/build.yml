@@ -4,6 +4,10 @@ on:
   push:
     branches: ["**"]
     tags: ["*"]
+    paths-ignore:
+      - "Tests/**"
+      - "GomuksUITests/**"
+      - ".github/workflows/ui-test.yml"
   workflow_dispatch:
 
 concurrency:
