@@ -6,6 +6,7 @@ struct SetupView: View {
     @State private var username: String
     @State private var password: String
     @State private var connecting = false
+    @State private var player = VideoPlayer.server?.absoluteString ?? ""
 
     init(browser: Browser) {
         self.browser = browser
@@ -32,6 +33,20 @@ struct SetupView: View {
                         .autocorrectionDisabled()
                     SecureField("Password", text: $password)
                         .textContentType(.password)
+                }
+                Section {
+                    TextField("https://player.example.com", text: $player)
+                        .keyboardType(.URL)
+                        .textContentType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .onChange(of: player) { _, value in
+                            VideoPlayer.server = Credentials.parseServer(value)
+                        }
+                } header: {
+                    Text("Video player")
+                } footer: {
+                    Text("yt-dlp web player for video links. Leave empty to open links in the browser.")
                 }
                 if let error = browser.setupError {
                     Section {
