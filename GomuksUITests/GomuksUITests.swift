@@ -46,16 +46,25 @@ final class GomuksUITests: XCTestCase {
         print("PERF open_room_s=\(Date().timeIntervalSince(opened))")
         attach(app, "room")
 
-        let showMedia = app.webViews.staticTexts["Show media"]
+        let showMedia = app.webViews.staticTexts["Show media"].firstMatch
         wait(showMedia, 10, app)
-        showMedia.tap()
-        let thumbnail = app.webViews.images["test.png"]
+        for _ in 0..<5 where showMedia.exists {
+            showMedia.tap()
+        }
+        let thumbnail = app.webViews.images["test.png"].firstMatch
         wait(thumbnail, 10, app)
         thumbnail.tap()
         wait(app.buttons["gomuks-image-viewer-close"], 10, app)
         wait(app.images["gomuks-image-viewer-image"], 15, app)
+        let counter = app.staticTexts["gomuks-image-viewer-counter"]
+        wait(counter, 5, app)
+        XCTAssertEqual(counter.label, "1 / 2")
         attach(app, "image-viewer")
-        app.buttons["gomuks-image-viewer-close"].tap()
+        app.swipeUp()
+        let second = NSPredicate(format: "label == %@", "2 / 2")
+        XCTAssertEqual(XCTWaiter.wait(for: [expectation(for: second, evaluatedWith: counter)], timeout: 5), .completed)
+        attach(app, "image-viewer-next")
+        app.swipeLeft()
         XCTAssertTrue(app.buttons["gomuks-image-viewer-close"].waitForNonExistence(timeout: 5))
         wait(newest, 10, app)
 
