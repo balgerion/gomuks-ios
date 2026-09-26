@@ -7,7 +7,7 @@ struct GomuksApp: App {
     var body: some Scene {
         WindowGroup {
             WebView(browser: browser)
-                .ignoresSafeArea()
+                .ignoresSafeArea(.container)
                 .onOpenURL { browser.open($0) }
                 .fullScreenCover(isPresented: $browser.needsSetup) {
                     SetupView(browser: browser)
