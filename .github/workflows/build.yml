@@ -5,6 +5,7 @@ on:
     branches: ["**"]
     tags: ["*"]
     paths-ignore:
+      - "**.md"
       - "Tests/**"
       - "GomuksUITests/**"
       - ".github/workflows/ui-test.yml"
