@@ -27,11 +27,17 @@ jobs:
           ref: ${{ env.GOMUKS_REF }}
           path: gomuks-src
 
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         id: gomuks-bin
         with:
           path: gomuks-src/gomuks
           key: gomuks-bin-macos-${{ env.GOMUKS_REF }}
+
+      - uses: actions/cache/restore@v4
+        id: synapse-venv
+        with:
+          path: Tests/testbed/state/venv
+          key: synapse-venv-macos-py3.12-v1
 
       - uses: actions/setup-go@v5
         if: steps.gomuks-bin.outputs.cache-hit != 'true'
@@ -53,6 +59,18 @@ jobs:
           GOMUKS_SRC: ${{ github.workspace }}/gomuks-src
         run: Tests/testbed/setup.sh
 
+      - uses: actions/cache/save@v4
+        if: steps.gomuks-bin.outputs.cache-hit != 'true'
+        with:
+          path: gomuks-src/gomuks
+          key: gomuks-bin-macos-${{ env.GOMUKS_REF }}
+
+      - uses: actions/cache/save@v4
+        if: steps.synapse-venv.outputs.cache-hit != 'true'
+        with:
+          path: Tests/testbed/state/venv
+          key: synapse-venv-macos-py3.12-v1
+
       - name: Generate project
         run: |
           brew install xcodegen
@@ -67,6 +85,8 @@ jobs:
             -resultBundlePath build/UITests.xcresult \
             CODE_SIGNING_ALLOWED=NO > build-test.log 2>&1 || status=$?
           grep -E "PERF|GEOMETRY|error:|Test Case|Executed" build-test.log || true
+          sed -n '/TREE-BEGIN/,/TREE-END/p' build-test.log | head -300
+          if [ -n "${status:-}" ]; then tail -n 60 Tests/testbed/state/gomuks/logs/gomuks.log || true; fi
           exit ${status:-0}
 
       - name: Export screenshots
