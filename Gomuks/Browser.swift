@@ -28,6 +28,7 @@ final class Browser: NSObject, ObservableObject {
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.navigationDelegate = self
         webView.uiDelegate = self
+        webView.removeInputAccessoryView()
         let contentController = webView.configuration.userContentController
         contentController.add(self, name: SettingsButton.messageName)
         contentController.addUserScript(
