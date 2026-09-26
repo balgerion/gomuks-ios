@@ -80,7 +80,7 @@ def main():
     t_tok, t_id = login("tester", "testpass")
     f_tok, f_id = login("friend", "friendpass")
     call("PUT", f"/_matrix/client/v3/user/{urllib.parse.quote(t_id)}/account_data/fi.mau.gomuks.preferences", t_tok,
-         {"custom_css": CUSTOM_CSS})
+         {"custom_css": CUSTOM_CSS, "show_media_previews": True})
     if resolve("#dm:localhost"):
         print("already seeded")
         return
