@@ -2,59 +2,42 @@
 
 ## Cel
 
-Aplikacja iOS (Swift, SwiftUI + `WKWebView`) otwierająca istniejący backend gomuks użytkownika (`https://gomuks.balgeriada.com`, dostępny tylko w LAN). Zastępuje PWA z Safari. Instalacja przez sideload niepodpisanej IPA (narzędzie do sideloadu podpisuje ją samo). Bez APNs i bez płatnego konta Apple.
+Aplikacja iOS (Swift, SwiftUI + UIKit, jeden `WKWebView`) otwierająca backend gomuks użytkownika. Zastępuje PWA z Safari. Instalacja: niepodpisana IPA z artefaktu GitHub Actions, uruchamiana przez LiveContainer (skrót na ekranie domowym, nie osobna ikona). Bez APNs i płatnego konta Apple.
 
-Powiadomienia obsługuje osobny projekt: przekaźnik Web Push do ntfy, robiony w innym repo. Aplikacja ntfy pokazuje powiadomienie, a tap otwiera ten wrapper przez URL `matrix:roomid/<room>/e/<event>`. To repo musi tylko obsłużyć schemat `matrix`.
+## Ograniczenia LiveContainer
+
+- `Settings.bundle` i skróty z ikony (`UIApplicationShortcutItems`) nie działają. Ustawienia są w aplikacji (zębatka).
+- Schemat `matrix:` nie jest rejestrowany w iOS. Link z zewnątrz musi iść przez `livecontainer://livecontainer-launch?bundle-name=...&open-url=<base64>`. Niesprawdzone na urządzeniu.
 
 ## Fakty o gomuks web (zweryfikowane w github.com/gomuks/gomuks)
 
-- Deep link: `<serverURL>/#/uri/<encodeURIComponent(matrixURI)>`. Obsługę robi `web/src/ui/MainScreen.tsx`, tak samo działa wrapper Androida `github.com/gomuks/android`.
-- Logowanie: zwykły ekran logowania gomuks ustawia cookie `gomuks_auth`. Trwały `WKWebsiteDataStore.default()` wystarczy.
-- Nie ustawiaj `window.gomuksAndroid`. Ta flaga przełącza logowanie na natywny bridge (web czeka na event `auth` z natywnej strony) i ukrywa część ustawień. Nie kopiuj bridge'a z wrappera Androida.
+- Logowanie: HTTP Basic na `POST _gomuks/auth`, serwer ustawia ciasteczko `gomuks_auth` ważne 7 dni i odświeżane przy każdym połączeniu (`pkg/gomuks/server.go`).
+- Deep link: `<server>/#/uri/<encodeURIComponent(matrixURI)>`, obsługa w `web/src/ui/MainScreen.tsx` (także przez `hashchange`).
+- Każde wejście do pokoju to wpis w historii (`pushState`); powrót gestem z krawędzi cofa historię.
+- Lightbox obrazków zapisuje stan `lightbox: {src, alt}` przez `history.pushState` (`web/src/ui/modal/Lightbox.tsx`).
+- Media: względne adresy `_gomuks/media/...`, wymagają ciasteczka.
+- Nie ustawiaj `window.gomuksAndroid` (przełącza logowanie na natywny bridge Androida).
 
-## Zakres
+## Architektura
 
-SwiftUI + `UIViewRepresentable` z `WKWebView`, target iOS 17.
+Sześć plików w `Gomuks/`, podział po funkcjach:
 
-- **Adres serwera:** domyślnie `https://gomuks.balgeriada.com`, do nadpisania przez `Settings.bundle` (pole tekstowe w systemowych Ustawieniach iOS). Bez własnego ekranu ustawień w aplikacji.
-- **`WKWebView`:**
-  - `websiteDataStore = .default()`,
-  - `allowsInlineMediaPlayback = true`,
-  - `mediaTypesRequiringUserActionForPlayback = []`,
-  - `isInspectable = true`,
-  - `allowsBackForwardNavigationGestures = false` (gomuks ma własne gesty).
-- **Linki zewnętrzne:** inny host niż serwer oraz `target=_blank` (przez `WKUIDelegate.createWebViewWith`) otwieraj przez `UIApplication.shared.open`.
-- **Uprawnienia:** `WKUIDelegate.requestMediaCapturePermissionFor` zwraca `.grant` (połączenia).
-- **`Info.plist`:**
-  - `NSCameraUsageDescription`, `NSMicrophoneUsageDescription`, `NSPhotoLibraryUsageDescription`,
-  - `CFBundleURLTypes` ze schematem `matrix`.
-- **Deep link:** `onOpenURL` dla `matrix:...` ładuje `<server>/#/uri/<percent-encoded URL>`. To samo przy zimnym starcie z linku.
-- **Safe area i klawiatura:** webview na cały ekran. Po pierwszym teście użytkownika popraw, jeśli treść wchodzi pod notch albo pasek domowy.
-- **Ikona:** logo gomuks z `github.com/gomuks/gomuks` (`web/public`), 1024x1024 w `Assets.xcassets`.
-- **Bundle ID:** `com.balgeriada.gomuks`, nazwa wyświetlana `gomuks`.
+- `App.swift`: start aplikacji, kontroler z `keyboardLayoutGuide` (strona kończy się nad klawiaturą), `GomuksWebView` bez paska nad klawiaturą.
+- `Browser.swift`: rdzeń. Start, logowanie natywne (URLSession, ciasteczko do WebKitu), deep linki, nawigacja i linki zewnętrzne, okienka JS (alert/confirm/prompt), wiadomości ze skryptów, kodowanie jak `encodeURIComponent`, konfiguracja `WKWebView` dla mediów.
+- `Settings.swift`: ekran serwera, konta i adresu playera; `Credentials` (adres i login w UserDefaults, hasło w Keychain); parsowanie adresu serwera.
+- `Scripts.swift`: skrypty wstrzykiwane do strony: `SettingsButton` (zębatka obok lupy), `TimelineScroll` (trzymanie dołu rozmowy przy zmianie wysokości, ResizeObserver), `MediaScript` (przechwycenie lightboxa, lista obrazków, wstawianie playera), `InlineVideoScript` (`playsinline` w ramkach).
+- `ImageViewer.swift`: natywny podgląd obrazków (strony w pionie, licznik, udostępnianie), strona ze zoomem i GIF-ami, `SwipeToDismiss` (zamykanie przesunięciem w bok, używane też przez player).
+- `VideoPlayer.swift`: adres playera i rozpoznawanie linków (YouTube, Vimeo, TikTok, Twitch, Dailymotion, Streamable, rolki Instagrama, filmy i rolki Facebooka) oraz karta z `/watch`. Podgląd filmu w rozmowie to iframe `<player>/iframe?url=...` (yt-dlp web player, github.com/Matszwe02/ytdlp_web_player). Pełny ekran przez systemowy odtwarzacz iOS.
 
-Pomiń w tej wersji: haptykę, share extension, pobieranie plików, bridge JS. Dodaj je dopiero na prośbę użytkownika.
+## Build i testy
 
-## Build
+- `project.yml` (XcodeGen), `.xcodeproj` poza repo.
+- `.github/workflows/build.yml`: IPA jako artefakt `gomuks-ipa`, release przy tagu. Pomija zmiany samych testów.
+- `.github/workflows/ui-test.yml`: test UI na symulatorze z lokalnym Synapse, gomuksem, fixture wideo i yt-dlp playerem (`Tests/testbed/`). Uruchamia się tylko po zmianie `Tests/ui-test-trigger` albo ręcznie z `main`. Minuty macOS są drogie: uruchamiać tylko na polecenie.
+- Środowisko testowe działa też lokalnie: `GOMUKS_SRC=<checkout gomuks> [PLAYER_SRC=<checkout playera>] Tests/testbed/setup.sh`.
 
-Projekt generowany przez XcodeGen z `project.yml`. `.xcodeproj` nie trafia do repo.
+## Otwarte tematy
 
-Workflow `.github/workflows/build.yml` na `macos-15`, uruchamiany na push (każdy branch) i `workflow_dispatch`:
-```
-brew install xcodegen
-xcodegen generate
-xcodebuild -project Gomuks.xcodeproj -scheme Gomuks -configuration Release \
-  -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
-  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
-mkdir Payload && cp -R build/Build/Products/Release-iphoneos/Gomuks.app Payload/
-zip -qr gomuks.ipa Payload
-```
-Wynik jako `actions/upload-artifact` (`gomuks-ipa`). Przy tagu dodatkowo release na GitHubie z `gomuks.ipa`.
-
-Budżet: minuty macOS w prywatnym repo liczą się x10, zostaje ok. 200 minut miesięcznie. Pushuj rzadko, najlepiej jeden push na skończony etap, a nie po każdym commicie.
-
-## Kolejność
-
-1. `project.yml`, aplikacja i workflow. Push, sprawdzenie, że CI przechodzi i daje artefakt.
-2. Użytkownik sideloaduje IPA i testuje: logowanie, trwałość sesji po zabiciu aplikacji, wysyłanie zdjęć, safe area, otwarcie `matrix:` linku z Safari.
-3. Poprawki według jego uwag.
+- Pobieranie plików (`m.file`) i linki zewnętrzne w aplikacji zamiast Safari.
+- Powiadomienia (przekaźnik Web Push do ntfy w osobnym repo) i linki `matrix:` przez LiveContainer.
+- Merge do `main` i tag `1.0`.
