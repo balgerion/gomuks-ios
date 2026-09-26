@@ -1,9 +1,12 @@
+import io
 import json
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+from PIL import Image
 
 HS = "http://127.0.0.1:8008"
 LINK_URL = "http://localhost:8765/video.html"
@@ -38,27 +41,30 @@ def login(user, password):
     return resp["access_token"], resp["user_id"]
 
 
-def send(token, room_id, text):
+def send_event(token, room_id, content):
     TXN[0] += 1
-    call("PUT", f"/_matrix/client/v3/rooms/{urllib.parse.quote(room_id)}/send/m.room.message/{TXN[0]}", token,
-         {"msgtype": "m.text", "body": text})
+    call("PUT", f"/_matrix/client/v3/rooms/{urllib.parse.quote(room_id)}/send/m.room.message/{TXN[0]}", token, content)
+
+
+def upload(token, data, mime, filename):
+    req = urllib.request.Request(HS + f"/_matrix/media/v3/upload?filename={filename}", data=data, method="POST")
+    req.add_header("Content-Type", mime)
+    req.add_header("Authorization", "Bearer " + token)
+    with OPENER.open(req) as resp:
+        return json.loads(resp.read())["content_uri"]
+
+
+def send(token, room_id, text):
+    send_event(token, room_id, {"msgtype": "m.text", "body": text})
 
 
 def send_image(token, room_id):
-    import io
-    from PIL import Image
     buffer = io.BytesIO()
     Image.new("RGB", (800, 600), (200, 40, 40)).save(buffer, format="PNG")
     body = buffer.getvalue()
-    req = urllib.request.Request(HS + "/_matrix/media/v3/upload?filename=test.png", data=body, method="POST")
-    req.add_header("Content-Type", "image/png")
-    req.add_header("Authorization", "Bearer " + token)
-    with OPENER.open(req) as resp:
-        uri = json.loads(resp.read())["content_uri"]
-    TXN[0] += 1
-    call("PUT", f"/_matrix/client/v3/rooms/{urllib.parse.quote(room_id)}/send/m.room.message/{TXN[0]}", token,
-         {"msgtype": "m.image", "body": "test.png", "url": uri,
-          "info": {"mimetype": "image/png", "w": 800, "h": 600, "size": len(body)}})
+    uri = upload(token, body, "image/png", "test.png")
+    send_event(token, room_id, {"msgtype": "m.image", "body": "test.png", "url": uri,
+                                "info": {"mimetype": "image/png", "w": 800, "h": 600, "size": len(body)}})
 
 
 def send_link(token, room_id, url):
@@ -74,15 +80,9 @@ def send_link(token, room_id, url):
         with OPENER.open(req) as resp:
             data = resp.read()
             mime = resp.headers.get("Content-Type", "image/png")
-        req = urllib.request.Request(HS + "/_matrix/media/v3/upload?filename=preview", data=data, method="POST")
-        req.add_header("Content-Type", mime)
-        req.add_header("Authorization", "Bearer " + token)
-        with OPENER.open(req) as resp:
-            bundled["og:image"] = json.loads(resp.read())["content_uri"]
+        bundled["og:image"] = upload(token, data, mime, "preview")
         bundled["matrix:image:size"] = len(data)
-    TXN[0] += 1
-    call("PUT", f"/_matrix/client/v3/rooms/{urllib.parse.quote(room_id)}/send/m.room.message/{TXN[0]}", token,
-         {"msgtype": "m.text", "body": f"watch this {url}", "com.beeper.linkpreviews": [bundled]})
+    send_event(token, room_id, {"msgtype": "m.text", "body": f"watch this {url}", "com.beeper.linkpreviews": [bundled]})
 
 
 def resolve(alias):
@@ -110,7 +110,7 @@ def main():
         print("already seeded")
         return
     if resolve("#main:localhost"):
-        raise SystemExit("partial seed detected, run setup.sh --reset")
+        raise SystemExit("partial seed detected, delete the testbed state directory and run setup.sh again")
     rooms = {}
     for alias, name, direct in (("main", "Main Room", False), ("side", "Side Room", False), (None, None, True)):
         body = {"preset": "private_chat", "invite": [f_id]}
