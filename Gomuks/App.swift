@@ -1,5 +1,22 @@
 import SwiftUI
+import UIKit
 import WebKit
+
+@main
+struct GomuksApp: App {
+    @StateObject private var browser = Browser.shared
+
+    var body: some Scene {
+        WindowGroup {
+            WebView(browser: browser)
+                .ignoresSafeArea()
+                .onOpenURL { browser.open($0) }
+                .fullScreenCover(isPresented: $browser.needsSetup) {
+                    SetupView(browser: browser)
+                }
+        }
+    }
+}
 
 struct WebView: UIViewControllerRepresentable {
     let browser: Browser
@@ -36,5 +53,11 @@ final class WebViewController: UIViewController {
             webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             webView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
         ])
+    }
+}
+
+final class GomuksWebView: WKWebView {
+    override var inputAccessoryView: UIView? {
+        nil
     }
 }
