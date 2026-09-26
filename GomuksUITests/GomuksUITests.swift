@@ -46,6 +46,19 @@ final class GomuksUITests: XCTestCase {
         print("PERF open_room_s=\(Date().timeIntervalSince(opened))")
         attach(app, "room")
 
+        let showMedia = app.webViews.staticTexts["Show media"]
+        wait(showMedia, 10, app)
+        showMedia.tap()
+        let thumbnail = app.webViews.images["test.png"]
+        wait(thumbnail, 10, app)
+        thumbnail.tap()
+        wait(app.buttons["gomuks-image-viewer-close"], 10, app)
+        wait(app.images["gomuks-image-viewer-image"], 15, app)
+        attach(app, "image-viewer")
+        app.buttons["gomuks-image-viewer-close"].tap()
+        XCTAssertTrue(app.buttons["gomuks-image-viewer-close"].waitForNonExistence(timeout: 5))
+        wait(newest, 10, app)
+
         let composer = app.webViews.textViews.firstMatch
         wait(composer, 10, app)
         composer.tap()
