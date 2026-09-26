@@ -3,14 +3,18 @@ import WebKit
 
 @MainActor
 final class Browser: NSObject, ObservableObject {
-    private static let defaultServer = URL(string: "https://gomuks.balgeriada.com")!
-    private static let serverKey = "server_url"
+    static let shared = Browser()
+    static let defaultServer = "https://gomuks.balgeriada.com"
     private static let uriComponentAllowed = CharacterSet(
         charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()"
     )
 
+    @Published var needsSetup = false
+    @Published private(set) var setupError: String?
+    private(set) var credentials = Credentials.load()
     let webView: WKWebView
-    private var loadedServer: URL?
+    private var started = false
+    private var pendingURL: URL?
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -24,55 +28,131 @@ final class Browser: NSObject, ObservableObject {
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.navigationDelegate = self
         webView.uiDelegate = self
-    }
-
-    private var configuredServer: URL {
-        let raw = UserDefaults.standard.string(forKey: Self.serverKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard let url = URL(string: raw),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "https" || scheme == "http",
-              url.host != nil
-        else {
-            return Self.defaultServer
-        }
-        return url
+        let contentController = webView.configuration.userContentController
+        contentController.add(self, name: SettingsButton.messageName)
+        contentController.addUserScript(
+            WKUserScript(source: SettingsButton.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        )
     }
 
     func start() {
-        guard loadedServer == nil else { return }
-        let server = configuredServer
-        load(server, server: server)
+        guard !started else { return }
+        started = true
+        guard let credentials else {
+            needsSetup = true
+            return
+        }
+        Task {
+            if let error = await authenticate(credentials) {
+                showSetup(error: error)
+            } else {
+                loadServer()
+            }
+        }
     }
 
     func open(_ url: URL) {
-        guard url.scheme?.lowercased() == "matrix",
-              let encoded = url.absoluteString.addingPercentEncoding(withAllowedCharacters: Self.uriComponentAllowed)
-        else { return }
-        let server = configuredServer
-        var base = server.absoluteString
-        while base.hasSuffix("/") {
-            base.removeLast()
-        }
-        guard let target = URL(string: base + "/#/uri/" + encoded) else { return }
-        load(target, server: server)
-    }
-
-    func reloadIfServerChanged() {
-        guard let loadedServer else { return }
-        let server = configuredServer
-        if !Self.sameOrigin(loadedServer, server) {
-            load(server, server: server)
+        guard url.scheme?.lowercased() == "matrix" else { return }
+        pendingURL = url
+        if credentials != nil, webView.url != nil, !needsSetup {
+            loadServer()
         }
     }
 
-    private func load(_ url: URL, server: URL) {
-        loadedServer = server
-        webView.load(URLRequest(url: url))
+    func showSetup(error: String?) {
+        setupError = error
+        needsSetup = true
+    }
+
+    func dismissSetup() {
+        setupError = nil
+        needsSetup = false
+        if webView.url == nil {
+            loadServer()
+        }
+    }
+
+    func connect(server raw: String, username: String, password: String) async {
+        setupError = nil
+        guard let server = Credentials.parseServer(raw) else {
+            setupError = "Invalid server address"
+            return
+        }
+        let credentials = Credentials(server: server, username: username, password: password)
+        if let error = await authenticate(credentials) {
+            setupError = error
+            return
+        }
+        credentials.save()
+        self.credentials = credentials
+        needsSetup = false
+        loadServer()
+    }
+
+    private func loadServer() {
+        guard let server = credentials?.server else { return }
+        var target = server
+        if let pendingURL,
+           let encoded = pendingURL.absoluteString.addingPercentEncoding(withAllowedCharacters: Self.uriComponentAllowed) {
+            var base = server.absoluteString
+            while base.hasSuffix("/") {
+                base.removeLast()
+            }
+            target = URL(string: base + "/#/uri/" + encoded) ?? server
+        }
+        pendingURL = nil
+        webView.load(URLRequest(url: target))
+    }
+
+    private func authenticate(_ credentials: Credentials) async -> String? {
+        guard let authURL = URL(string: "_gomuks/auth", relativeTo: Self.withTrailingSlash(credentials.server)) else {
+            return "Invalid server address"
+        }
+        var request = URLRequest(url: authURL)
+        request.httpMethod = "POST"
+        request.setValue(
+            "Basic " + Data("\(credentials.username):\(credentials.password)".utf8).base64EncodedString(),
+            forHTTPHeaderField: "Authorization"
+        )
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.finishTasksAndInvalidate() }
+        do {
+            let (_, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                return "Invalid server response"
+            }
+            switch http.statusCode {
+            case 200, 201, 204:
+                break
+            case 401:
+                return "Incorrect username or password"
+            default:
+                return "Server returned HTTP \(http.statusCode)"
+            }
+            var headers: [String: String] = [:]
+            for (key, value) in http.allHeaderFields {
+                if let key = key as? String, let value = value as? String {
+                    headers[key] = value
+                }
+            }
+            let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
+            for cookie in HTTPCookie.cookies(withResponseHeaderFields: headers, for: authURL) {
+                await cookieStore.setCookie(cookie)
+            }
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    private static func withTrailingSlash(_ url: URL) -> URL {
+        let text = url.absoluteString
+        return text.hasSuffix("/") ? url : URL(string: text + "/") ?? url
     }
 
     private func isServer(_ url: URL) -> Bool {
-        Self.sameOrigin(url, loadedServer ?? configuredServer)
+        guard let server = credentials?.server else { return false }
+        return Self.sameOrigin(url, server)
     }
 
     private func openExternally(_ url: URL) {
@@ -134,6 +214,41 @@ extension Browser: WKNavigationDelegate {
             decisionHandler(.cancel)
             openExternally(url)
         }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping @MainActor (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        let space = challenge.protectionSpace
+        guard space.authenticationMethod == NSURLAuthenticationMethodHTTPBasic,
+              let credentials,
+              space.host.lowercased() == credentials.server.host?.lowercased()
+        else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        if challenge.previousFailureCount == 0 {
+            completionHandler(
+                .useCredential,
+                URLCredential(user: credentials.username, password: credentials.password, persistence: .forSession)
+            )
+        } else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            showSetup(error: "Incorrect username or password")
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+            return
+        }
+        if nsError.domain == "WebKitErrorDomain" && nsError.code == 102 {
+            return
+        }
+        showSetup(error: error.localizedDescription)
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -207,5 +322,11 @@ extension Browser: WKUIDelegate {
         if !present(alert) {
             completionHandler(nil)
         }
+    }
+}
+
+extension Browser: WKScriptMessageHandler {
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        showSetup(error: nil)
     }
 }
