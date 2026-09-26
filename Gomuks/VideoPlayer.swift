@@ -46,6 +46,13 @@ enum VideoPlayer {
         if host == "instagram.com" || host.hasSuffix(".instagram.com") {
             return url.path.hasPrefix("/reel")
         }
+        if host == "fb.watch" {
+            return true
+        }
+        if host == "facebook.com" || host.hasSuffix(".facebook.com") {
+            let path = url.path
+            return ["/reel", "/share/r/", "/share/v/", "/watch"].contains { path.hasPrefix($0) } || path.contains("/videos/")
+        }
         return videoHosts.contains { host == $0 || host.hasSuffix("." + $0) }
     }
 }
