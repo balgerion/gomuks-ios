@@ -14,6 +14,8 @@ final class GomuksUITests: XCTestCase {
         let connect = app.buttons["Connect"]
         wait(connect, 30, app)
         let serverField = app.textFields.element(boundBy: 0)
+        serverField.tap()
+        wait(app.keyboards.firstMatch, 10, app)
         serverField.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
         serverField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 60) + server)
         let username = app.textFields.element(boundBy: 1)
