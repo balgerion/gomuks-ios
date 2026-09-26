@@ -25,7 +25,18 @@ enum ImageViewerScript {
                 const src = new URL(lightbox.src, location.href);
                 if (src.protocol === "https:" || src.protocol === "http:") {
                     root.classList.add("ios-native-lightbox");
-                    window.webkit.messageHandlers.\(messageName).postMessage({ src: src.href, alt: String(lightbox.alt || "") });
+                    const images = [...document.querySelectorAll("div.timeline-view .image-container img")]
+                        .map((img) => ({
+                            src: new URL(img.getAttribute("data-full-src") || img.src, location.href).href,
+                            alt: img.alt || "",
+                        }))
+                        .filter((image) => image.src.startsWith("http"));
+                    let index = images.findIndex((image) => image.src === src.href);
+                    if (index < 0) {
+                        images.splice(0, images.length, { src: src.href, alt: String(lightbox.alt || "") });
+                        index = 0;
+                    }
+                    window.webkit.messageHandlers.\(messageName).postMessage({ images, index });
                     requestAnimationFrame(() => closeLightbox(0));
                     return;
                 }
