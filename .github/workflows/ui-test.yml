@@ -1,0 +1,79 @@
+name: ui-test
+
+on:
+  workflow_dispatch:
+
+env:
+  GOMUKS_REF: 90ccd9323d104d72df4ccab078cc56df866accba
+
+jobs:
+  ui-test:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: gomuks/gomuks
+          ref: ${{ env.GOMUKS_REF }}
+          path: gomuks-src
+
+      - uses: actions/cache@v4
+        id: gomuks-bin
+        with:
+          path: gomuks-src/gomuks
+          key: gomuks-bin-macos-${{ env.GOMUKS_REF }}
+
+      - uses: actions/setup-go@v5
+        if: steps.gomuks-bin.outputs.cache-hit != 'true'
+        with:
+          go-version-file: gomuks-src/go.mod
+          cache-dependency-path: gomuks-src/go.sum
+
+      - uses: actions/setup-node@v4
+        if: steps.gomuks-bin.outputs.cache-hit != 'true'
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Start test backend
+        env:
+          GOMUKS_SRC: ${{ github.workspace }}/gomuks-src
+        run: Tests/testbed/setup.sh
+
+      - name: Generate project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Run UI tests
+        run: |
+          defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
+          device=$(xcrun simctl list devices available | grep -m1 -oE 'iPhone 16( Pro)? \(' | sed 's/ ($//')
+          xcodebuild test -project Gomuks.xcodeproj -scheme Gomuks \
+            -destination "platform=iOS Simulator,name=$device" \
+            -resultBundlePath build/UITests.xcresult \
+            CODE_SIGNING_ALLOWED=NO > build-test.log 2>&1 || status=$?
+          grep -E "PERF|GEOMETRY|error:|Test Case|Executed" build-test.log || true
+          exit ${status:-0}
+
+      - name: Export screenshots
+        if: always()
+        run: |
+          mkdir -p build/attachments
+          xcrun xcresulttool export attachments --path build/UITests.xcresult --output-path build/attachments || true
+          cp -R Tests/testbed/state/logs build/attachments/backend-logs || true
+          cp build-test.log build/attachments/ || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-test-results
+          path: build/attachments
