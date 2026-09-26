@@ -12,6 +12,7 @@ concurrency:
 
 env:
   GOMUKS_REF: 90ccd9323d104d72df4ccab078cc56df866accba
+  PLAYER_REF: 781a17a57cbba449a9e21f93b8fa4a445d85da2d
 
 jobs:
   ui-test:
@@ -47,7 +48,7 @@ jobs:
         id: synapse-venv
         with:
           path: Tests/testbed/state/venv
-          key: synapse-venv-macos-py3.12-v1
+          key: synapse-venv-macos-py3.12-v2
 
       - uses: actions/setup-go@v5
         if: steps.gomuks-bin.outputs.cache-hit != 'true'
@@ -60,6 +61,12 @@ jobs:
         with:
           node-version: 22
 
+      - uses: actions/checkout@v4
+        with:
+          repository: Matszwe02/ytdlp_web_player
+          ref: ${{ env.PLAYER_REF }}
+          path: player-src
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -67,6 +74,7 @@ jobs:
       - name: Start test backend
         env:
           GOMUKS_SRC: ${{ github.workspace }}/gomuks-src
+          PLAYER_SRC: ${{ github.workspace }}/player-src
         run: Tests/testbed/setup.sh
 
       - uses: actions/cache/save@v4
@@ -79,7 +87,7 @@ jobs:
         if: steps.synapse-venv.outputs.cache-hit != 'true'
         with:
           path: Tests/testbed/state/venv
-          key: synapse-venv-macos-py3.12-v1
+          key: synapse-venv-macos-py3.12-v2
 
       - name: Generate project
         run: |
