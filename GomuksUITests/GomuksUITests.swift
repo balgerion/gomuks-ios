@@ -15,7 +15,7 @@ final class GomuksUITests: XCTestCase {
         let connect = app.buttons["Connect"]
         wait(connect, 30, app)
         let serverField = app.textFields.element(boundBy: 0)
-        serverField.tap()
+        serverField.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
         serverField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 60) + server)
         let username = app.textFields.element(boundBy: 1)
         username.tap()
@@ -27,7 +27,7 @@ final class GomuksUITests: XCTestCase {
         connect.tap()
 
         let mainRoom = app.webViews.staticTexts["Main Room"]
-        wait(mainRoom, 90, app)
+        wait(mainRoom, 45, app)
         print("PERF launch_to_room_list_s=\(Date().timeIntervalSince(launched))")
         attach(app, "room-list")
 
