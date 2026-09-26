@@ -22,7 +22,6 @@ final class Browser: NSObject, ObservableObject {
         configuration.websiteDataStore = .default()
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
-        configuration.preferences.isElementFullscreenEnabled = true
         webView = GomuksWebView(frame: .zero, configuration: configuration)
         super.init()
         webView.isInspectable = true
