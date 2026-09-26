@@ -6,6 +6,7 @@ import urllib.parse
 import urllib.request
 
 HS = "http://127.0.0.1:8008"
+LINK_URL = "http://localhost:8765/video.html"
 CUSTOM_CSS = '@import url("https://css.gomuks.app/theme/discord-dark.css");'
 OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 TXN = [int(time.time() * 1000)]
@@ -60,6 +61,30 @@ def send_image(token, room_id):
           "info": {"mimetype": "image/png", "w": 800, "h": 600, "size": len(body)}})
 
 
+def send_link(token, room_id, url):
+    _, preview = call("GET", "/_matrix/client/v1/media/preview_url?url=" + urllib.parse.quote(url, safe=""), token)
+    bundled = {"matched_url": url}
+    for key in ("og:title", "og:description", "og:url", "og:image:width", "og:image:height", "og:image:type"):
+        if key in preview:
+            bundled[key] = preview[key]
+    image = preview.get("og:image")
+    if image and image.startswith("mxc://"):
+        req = urllib.request.Request(HS + "/_matrix/client/v1/media/download/" + image[len("mxc://"):])
+        req.add_header("Authorization", "Bearer " + token)
+        with OPENER.open(req) as resp:
+            data = resp.read()
+            mime = resp.headers.get("Content-Type", "image/png")
+        req = urllib.request.Request(HS + "/_matrix/media/v3/upload?filename=preview", data=data, method="POST")
+        req.add_header("Content-Type", mime)
+        req.add_header("Authorization", "Bearer " + token)
+        with OPENER.open(req) as resp:
+            bundled["og:image"] = json.loads(resp.read())["content_uri"]
+        bundled["matrix:image:size"] = len(data)
+    TXN[0] += 1
+    call("PUT", f"/_matrix/client/v3/rooms/{urllib.parse.quote(room_id)}/send/m.room.message/{TXN[0]}", token,
+         {"msgtype": "m.text", "body": f"watch this {url}", "com.beeper.linkpreviews": [bundled]})
+
+
 def resolve(alias):
     status, resp = call("GET", "/_matrix/client/v3/directory/room/" + urllib.parse.quote(alias), ok=(200, 404))
     return resp.get("room_id") if status == 200 else None
@@ -103,6 +128,8 @@ def main():
          {t_id: [rooms["dm"]]})
     for i in range(150):
         send(t_tok if i % 2 == 0 else f_tok, rooms["main"], text_for(i))
+        if i == 145:
+            send_link(f_tok, rooms["main"], LINK_URL)
         if i in (146, 147):
             send_image(f_tok, rooms["main"])
     for i in range(10):
