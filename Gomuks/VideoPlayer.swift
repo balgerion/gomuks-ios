@@ -95,6 +95,7 @@ enum VideoPlayer {
         results[link] = reason == "error" ? .failed : .other
         if reason == "no-media" {
             rememberNoMedia(link)
+            forgetPatterns(matching: link)
         }
     }
 
@@ -120,6 +121,23 @@ enum VideoPlayer {
     private static func isMixed(_ url: URL) -> Bool {
         guard let host = url.host?.lowercased() else { return false }
         return mixedHosts.contains { host == $0 || host.hasSuffix("." + $0) }
+    }
+
+    static func playerRedirected(to target: URL, from link: URL) {
+        guard target == link || target == resolved[link] else { return }
+        markNoVideo(link, reason: "no-media")
+    }
+
+    private static func forgetPatterns(matching link: URL) {
+        let text = link.absoluteString
+        let range = NSRange(text.startIndex..., in: text)
+        let stale = patterns.filter { $0.firstMatch(in: text, options: .anchored, range: range) != nil }.map(\.pattern)
+        guard !stale.isEmpty else { return }
+        for pattern in stale {
+            learned[pattern] = nil
+        }
+        patterns.removeAll { stale.contains($0.pattern) }
+        UserDefaults.standard.set(learned, forKey: patternsKey)
     }
 
     private static func matchesPattern(_ url: URL) -> Bool {
@@ -234,12 +252,14 @@ final class VideoPlayerController: UIViewController, WKNavigationDelegate, WKUID
     """
 
     private let url: URL
+    private let link: URL
     private var webView: WKWebView?
     private var touchingControls = false
     private var swipeToDismiss: SwipeToDismiss?
 
-    init(url: URL) {
+    init(url: URL, link: URL) {
         self.url = url
+        self.link = link
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .pageSheet
         sheetPresentationController?.detents = [.large()]
@@ -333,6 +353,7 @@ final class VideoPlayerController: UIViewController, WKNavigationDelegate, WKUID
             return
         }
         decisionHandler(.cancel)
+        VideoPlayer.playerRedirected(to: target, from: link)
         UIApplication.shared.open(target)
         dismiss(animated: true)
     }

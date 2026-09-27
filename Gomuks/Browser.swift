@@ -200,7 +200,7 @@ extension Browser {
         }
         Task {
             if await VideoPlayer.kind(of: url) == .video, let watch = VideoPlayer.watchURL(for: url) {
-                present(VideoPlayerController(url: watch))
+                present(VideoPlayerController(url: watch, link: url))
             } else {
                 UIApplication.shared.open(url, options: [:], completionHandler: nil)
             }
