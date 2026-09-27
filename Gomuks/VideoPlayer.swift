@@ -2,12 +2,18 @@ import Foundation
 import UIKit
 import WebKit
 
+@MainActor
 enum VideoPlayer {
+    private struct CheckResult: Decodable {
+        let video: Bool
+    }
+
     private static let key = "player_url"
     private static let videoHosts = [
         "youtube.com", "youtu.be", "youtube-nocookie.com", "vimeo.com", "tiktok.com",
         "twitch.tv", "dailymotion.com", "dai.ly", "streamable.com",
     ]
+    private static var checked: [URL: Bool] = [:]
 
     static var server: URL? {
         get {
@@ -18,16 +24,16 @@ enum VideoPlayer {
         }
     }
 
-    static func watchURL(for link: URL) -> URL? {
-        playerURL(for: link, endpoint: "watch")
+    static func watchURL(for link: URL) async -> URL? {
+        await isVideoLink(link) ? playerURL(for: link, endpoint: "watch") : nil
     }
 
-    static func iframeURL(for link: URL) -> URL? {
-        playerURL(for: link, endpoint: "iframe")
+    static func iframeURL(for link: URL) async -> URL? {
+        await isVideoLink(link) ? playerURL(for: link, endpoint: "iframe") : nil
     }
 
     private static func playerURL(for link: URL, endpoint: String) -> URL? {
-        guard let server, isVideoLink(link),
+        guard let server,
               var components = URLComponents(url: server, resolvingAgainstBaseURL: false)
         else { return nil }
         var path = components.path
@@ -40,10 +46,35 @@ enum VideoPlayer {
         return components.url
     }
 
-    private static func isVideoLink(_ url: URL) -> Bool {
-        guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
-              let host = url.host?.lowercased()
-        else { return false }
+    private static func isVideoLink(_ url: URL) async -> Bool {
+        guard server != nil, let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http" else { return false }
+        if let result = checked[url] {
+            return result
+        }
+        if isKnownVideoHost(url) {
+            return true
+        }
+        guard let result = await check(url) else { return false }
+        checked[url] = result
+        return result
+    }
+
+    static func markNoVideo(_ link: URL) {
+        checked[link] = false
+    }
+
+    private static func check(_ link: URL) async -> Bool? {
+        guard let url = playerURL(for: link, endpoint: "check") else { return nil }
+        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 1.5)
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let result = try? JSONDecoder().decode(CheckResult.self, from: data)
+        else { return nil }
+        return result.video
+    }
+
+    private static func isKnownVideoHost(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
         if host == "instagram.com" || host.hasSuffix(".instagram.com") {
             return url.path.hasPrefix("/reel")
         }
@@ -172,6 +203,7 @@ final class VideoPlayerController: UIViewController, WKNavigationDelegate, WKUID
         }
         decisionHandler(.cancel)
         UIApplication.shared.open(target)
+        dismiss(animated: true)
     }
 
     func webView(

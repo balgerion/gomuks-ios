@@ -196,10 +196,14 @@ extension Browser {
     private func openExternally(_ url: URL) {
         if url.scheme?.lowercased() == "matrix" {
             open(url)
-        } else if let watch = VideoPlayer.watchURL(for: url) {
-            present(VideoPlayerController(url: watch))
-        } else {
-            UIApplication.shared.open(url)
+            return
+        }
+        Task {
+            if let watch = await VideoPlayer.watchURL(for: url) {
+                present(VideoPlayerController(url: watch))
+            } else {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            }
         }
     }
 
@@ -377,18 +381,20 @@ extension Browser: WKScriptMessageHandler {
             guard let src = entry["src"] as? String, let url = URL(string: src) else { return nil }
             return ViewerImage(url: url, name: entry["alt"] as? String ?? "")
         }
-        guard images.indices.contains(index) else { return }
-        if let link = (fields["link"] as? String).flatMap(URL.init(string:)),
-           let player = VideoPlayer.iframeURL(for: link),
-           let argument = try? JSONSerialization.data(withJSONObject: [player.absoluteString]),
-           let json = String(data: argument, encoding: .utf8) {
-            webView.evaluateJavaScript("window.__gomuksEmbedVideo(...\(json))")
-            return
+        if let noVideo = (fields["noVideo"] as? String).flatMap(URL.init(string:)) {
+            VideoPlayer.markNoVideo(noVideo)
         }
-        guard !showingImage else { return }
+        guard images.indices.contains(index), !showingImage else { return }
         showingImage = true
+        let link = (fields["link"] as? String).flatMap(URL.init(string:))
         Task {
             defer { showingImage = false }
+            if let link, let player = await VideoPlayer.iframeURL(for: link),
+               let argument = try? JSONSerialization.data(withJSONObject: [player.absoluteString]),
+               let json = String(data: argument, encoding: .utf8) {
+                webView.evaluateJavaScript("window.__gomuksEmbedVideo(...\(json))", completionHandler: nil)
+                return
+            }
             let cookies = await webView.configuration.websiteDataStore.httpCookieStore.allCookies()
             let configuration = URLSessionConfiguration.ephemeral
             for cookie in cookies {
