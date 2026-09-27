@@ -61,7 +61,16 @@ enum MediaScript {
     static let script = """
     (() => {
         const style = document.createElement("style");
-        style.textContent = "html.ios-native-lightbox div.lightbox { display: none !important; }";
+        style.textContent = [
+            "html.ios-native-lightbox div.lightbox { display: none !important; }",
+            "div.url-preview:not(.inline) { width: 100% !important; }",
+            "div.url-preview div.media-container { height: auto !important; contain: layout paint !important; content-visibility: visible !important; contain-intrinsic-size: none !important; align-self: start; }",
+            "div.url-preview:not(.inline) > div.media-container { width: 100% !important; aspect-ratio: 16 / 9; }",
+            "div.url-preview.inline:has(> div.inline-media-wrapper) { width: 100%; max-width: none; max-height: none; grid-template: 'title actions' auto 'description description' auto 'media media' auto / 1fr auto; }",
+            "div.url-preview.inline > div.inline-media-wrapper { padding: 0; border-radius: 0 0 .5rem .5rem; }",
+            "div.url-preview.inline > div.inline-media-wrapper > div.media-container { width: min(100%, calc(50vh * 9 / 16)) !important; aspect-ratio: 9 / 16; }",
+            "div.url-preview div.media-container > img, div.url-preview div.media-container > canvas { width: 100% !important; height: 100% !important; object-fit: cover; display: block; }",
+        ].join(" ");
         document.head.appendChild(style);
         const root = document.documentElement;
         const closeLightbox = (attempt) => {
