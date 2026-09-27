@@ -76,6 +76,7 @@ enum MediaScript {
             }
         };
         let lastContainer = null;
+        let lastPayload = null;
         window.__gomuksEmbedVideo = (src) => {
             const container = lastContainer;
             if (!container || container.querySelector("iframe.ios-inline-player")) {
@@ -92,8 +93,29 @@ enum MediaScript {
             frame.allow = "autoplay; fullscreen; picture-in-picture";
             frame.allowFullscreen = true;
             frame.style.cssText = "position: absolute; inset: 0; width: 100%; height: 100%; border: 0;";
+            frame.gomuksPayload = lastPayload;
             container.appendChild(frame);
         };
+        window.addEventListener("message", (event) => {
+            if (!event.data || event.data.type !== "ytdlp-no-video") {
+                return;
+            }
+            const frame = [...document.querySelectorAll("iframe.ios-inline-player")]
+                .find((candidate) => candidate.contentWindow === event.source);
+            if (!frame || new URL(frame.src).origin !== event.origin) {
+                return;
+            }
+            const container = frame.parentElement;
+            const payload = frame.gomuksPayload;
+            frame.remove();
+            const image = container && container.querySelector("img");
+            if (image) {
+                image.style.visibility = "";
+            }
+            if (payload) {
+                window.webkit.messageHandlers.\(messageName).postMessage({ ...payload, link: "", noVideo: String(event.data.url || "") });
+            }
+        });
         const fullSource = (img) => new URL(img.getAttribute("data-full-src") || img.src, location.href).href;
         const pushState = history.pushState.bind(history);
         history.pushState = (state, unused, url) => {
@@ -117,6 +139,7 @@ enum MediaScript {
                     const link = (preview
                         ? preview.querySelector(".title a")?.href
                         : lastContainer?.parentElement?.querySelector(".message-text a[href]")?.href) || "";
+                    lastPayload = { images, index };
                     window.webkit.messageHandlers.\(messageName).postMessage({ images, index, link });
                     requestAnimationFrame(() => closeLightbox(0));
                     return;
