@@ -113,9 +113,55 @@ enum MediaScript {
                 image.style.visibility = "";
             }
             if (payload) {
-                window.webkit.messageHandlers.\(messageName).postMessage({ ...payload, link: "", noVideo: String(event.data.url || "") });
+                window.webkit.messageHandlers.\(messageName).postMessage({
+                    ...payload,
+                    link: "",
+                    noVideo: String(event.data.url || ""),
+                    reason: String(event.data.reason || ""),
+                });
             }
         });
+        const visible = new Set();
+        let prefetchTimer = 0;
+        const schedulePrefetch = () => {
+            clearTimeout(prefetchTimer);
+            prefetchTimer = setTimeout(() => {
+                const links = [...visible].filter((link) => link.isConnected).map((link) => link.href);
+                if (links.length) {
+                    window.webkit.messageHandlers.\(messageName).postMessage({ prefetch: links });
+                }
+            }, 300);
+        };
+        const visibleLinks = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+                if (entry.isIntersecting) {
+                    visible.add(entry.target);
+                } else {
+                    visible.delete(entry.target);
+                }
+            }
+            schedulePrefetch();
+        });
+        const watchLinks = (node) => {
+            if (node.nodeType !== Node.ELEMENT_NODE) {
+                return;
+            }
+            const links = !node.closest("div.timeline-view")
+                ? node.querySelectorAll("div.timeline-view a[href]")
+                : node.matches("a[href]") ? [node] : node.querySelectorAll("a[href]");
+            for (const link of links) {
+                if ((link.protocol === "https:" || link.protocol === "http:") && link.origin !== location.origin && link.hostname !== "matrix.to") {
+                    visibleLinks.observe(link);
+                }
+            }
+        };
+        new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                mutation.addedNodes.forEach(watchLinks);
+            }
+        }).observe(document.body, { childList: true, subtree: true });
+        document.addEventListener("scroll", schedulePrefetch, { capture: true, passive: true });
+        watchLinks(document.body);
         const fullSource = (img) => new URL(img.getAttribute("data-full-src") || img.src, location.href).href;
         const pushState = history.pushState.bind(history);
         history.pushState = (state, unused, url) => {
