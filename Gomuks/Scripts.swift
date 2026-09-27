@@ -63,13 +63,12 @@ enum MediaScript {
         const style = document.createElement("style");
         style.textContent = [
             "html.ios-native-lightbox div.lightbox { display: none !important; }",
-            "div.url-preview:not(.inline) { width: 100% !important; }",
-            "div.url-preview div.media-container { height: auto !important; contain: layout paint !important; content-visibility: visible !important; contain-intrinsic-size: none !important; align-self: start; }",
-            "div.url-preview:not(.inline) > div.media-container { width: 100% !important; aspect-ratio: 16 / 9; }",
-            "div.url-preview.inline:has(> div.inline-media-wrapper) { width: 100%; max-width: none; max-height: none; grid-template: 'title actions' auto 'description description' auto 'media media' auto / 1fr auto; }",
-            "div.url-preview.inline > div.inline-media-wrapper { padding: 0; border-radius: 0 0 .5rem .5rem; }",
-            "div.url-preview.inline > div.inline-media-wrapper > div.media-container { width: min(100%, calc(50vh * 9 / 16)) !important; aspect-ratio: 9 / 16; }",
-            "div.url-preview div.media-container > img, div.url-preview div.media-container > canvas { width: 100% !important; height: 100% !important; object-fit: cover; display: block; }",
+            "div.url-preview[data-ios-shape] { width: 100% !important; max-width: none !important; max-height: none !important; grid-template: 'title actions' auto 'description description' auto 'media media' auto / 1fr auto !important; }",
+            "div.url-preview[data-ios-shape] > div.inline-media-wrapper { padding: 0; border-radius: 0 0 .5rem .5rem; }",
+            "div.url-preview[data-ios-shape] div.media-container { height: auto !important; contain: layout paint !important; content-visibility: visible !important; contain-intrinsic-size: none !important; align-self: start; justify-self: center; }",
+            "div.url-preview[data-ios-shape=landscape] div.media-container { width: 100% !important; aspect-ratio: 16 / 9; }",
+            "div.url-preview[data-ios-shape=portrait] div.media-container { width: min(100%, calc(50vh * 9 / 16)) !important; aspect-ratio: 9 / 16; }",
+            "div.url-preview[data-ios-shape] div.media-container > img, div.url-preview[data-ios-shape] div.media-container > canvas { width: 100% !important; height: 100% !important; object-fit: cover; display: block; }",
         ].join(" ");
         document.head.appendChild(style);
         const root = document.documentElement;
@@ -151,26 +150,45 @@ enum MediaScript {
             }
             schedulePrefetch();
         });
-        const watchLinks = (node) => {
+        const previewRatio = (preview) => {
+            const [width, height] = (preview.querySelector("div.media-container > img")?.style.aspectRatio || "").split("/").map(Number);
+            if (width > 0 && height > 0) {
+                return width / height;
+            }
+            const box = preview.querySelector("div.media-container");
+            return box ? parseFloat(box.style.width) / parseFloat(box.style.height) : NaN;
+        };
+        const shapePreview = (preview) => {
+            const ratio = previewRatio(preview);
+            if (ratio > 0) {
+                preview.dataset.iosShape = ratio < 1 ? "portrait" : "landscape";
+            }
+        };
+        const watchTimeline = (node) => {
             if (node.nodeType !== Node.ELEMENT_NODE) {
                 return;
             }
-            const links = !node.closest("div.timeline-view")
-                ? node.querySelectorAll("div.timeline-view a[href]")
-                : node.matches("a[href]") ? [node] : node.querySelectorAll("a[href]");
-            for (const link of links) {
+            const inTimeline = Boolean(node.closest("div.timeline-view"));
+            const find = (selector) => !inTimeline
+                ? node.querySelectorAll("div.timeline-view " + selector)
+                : node.matches(selector) ? [node] : node.querySelectorAll(selector);
+            for (const link of find("a[href]")) {
                 if ((link.protocol === "https:" || link.protocol === "http:") && link.origin !== location.origin && link.hostname !== "matrix.to") {
                     visibleLinks.observe(link);
                 }
             }
+            const owner = inTimeline ? node.parentElement?.closest("div.url-preview") : null;
+            for (const preview of owner ? [owner] : find("div.url-preview")) {
+                shapePreview(preview);
+            }
         };
         new MutationObserver((mutations) => {
             for (const mutation of mutations) {
-                mutation.addedNodes.forEach(watchLinks);
+                mutation.addedNodes.forEach(watchTimeline);
             }
         }).observe(document.body, { childList: true, subtree: true });
         document.addEventListener("scroll", schedulePrefetch, { capture: true, passive: true });
-        watchLinks(document.body);
+        watchTimeline(document.body);
         const fullSource = (img) => new URL(img.getAttribute("data-full-src") || img.src, location.href).href;
         const pushState = history.pushState.bind(history);
         history.pushState = (state, unused, url) => {
