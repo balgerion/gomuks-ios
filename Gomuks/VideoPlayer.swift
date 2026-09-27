@@ -26,10 +26,7 @@ enum VideoPlayer {
     private static let noMediaKey = "no_media_links"
     private static let noMediaLifetime: TimeInterval = 7 * 24 * 60 * 60
     private static let maxConcurrentChecks = 2
-    private static let videoHosts = [
-        "youtube.com", "youtu.be", "youtube-nocookie.com", "vimeo.com", "tiktok.com",
-        "twitch.tv", "dailymotion.com", "dai.ly", "streamable.com",
-    ]
+    private static let videoHosts = ["youtube.com", "youtu.be", "youtube-nocookie.com"]
     private static let mixedHosts = [
         "x.com", "twitter.com", "instagram.com", "reddit.com", "redd.it",
         "facebook.com", "fb.watch", "tumblr.com", "bsky.app", "imgur.com", "pinterest.com", "pin.it",
@@ -229,6 +226,10 @@ enum VideoPlayer {
         }
         if host == "fb.watch" {
             return true
+        }
+        if host == "vimeo.com" || host.hasSuffix(".vimeo.com") {
+            let first = url.pathComponents.dropFirst().first ?? ""
+            return !first.isEmpty && first.allSatisfy(\.isNumber)
         }
         if host == "facebook.com" || host.hasSuffix(".facebook.com") {
             let path = url.path
