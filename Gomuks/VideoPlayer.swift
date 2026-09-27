@@ -13,16 +13,18 @@ enum VideoPlayer {
     private struct CheckResult: Decodable {
         let video: Bool
         let reason: String?
-        let pattern: String?
         let url: String?
     }
 
+    private struct PatternList: Decodable {
+        let patterns: [String]
+    }
+
     private static let key = "player_url"
-    private static let patternsKey = "video_patterns"
+    private static let legacyPatternsKey = "video_patterns"
+    private static let patternsETagKey = "patterns_etag"
     private static let noMediaKey = "no_media_links"
     private static let noMediaLifetime: TimeInterval = 7 * 24 * 60 * 60
-    private static let patternLifetime: TimeInterval = 30 * 24 * 60 * 60
-    private static let maxPatterns = 200
     private static let maxConcurrentChecks = 2
     private static let videoHosts = [
         "youtube.com", "youtu.be", "youtube-nocookie.com", "vimeo.com", "tiktok.com",
@@ -37,15 +39,47 @@ enum VideoPlayer {
     private static var checks: [URL: Task<LinkKind?, Never>] = [:]
     private static var queued: [URL] = []
     private static var noMedia: [String: Date] = loadNoMedia()
-    private static var learned: [String: Date] = loadPatterns()
-    private static var patterns: [NSRegularExpression] = learned.keys.compactMap { try? NSRegularExpression(pattern: $0) }
+    private static var patterns: [NSRegularExpression] = []
+    private static var patternsTask: Task<Void, Never>?
+    private static let patternsFile = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("video-patterns.json")
 
     static var server: URL? {
         get {
             UserDefaults.standard.string(forKey: key).flatMap { URL(serverAddress: $0) }
         }
         set {
+            guard newValue?.absoluteString != UserDefaults.standard.string(forKey: key) else { return }
             UserDefaults.standard.set(newValue?.absoluteString, forKey: key)
+            UserDefaults.standard.removeObject(forKey: patternsETagKey)
+            try? FileManager.default.removeItem(at: patternsFile)
+            patterns = []
+            refreshPatterns()
+        }
+    }
+
+    static func refreshPatterns() {
+        UserDefaults.standard.removeObject(forKey: legacyPatternsKey)
+        patternsTask?.cancel()
+        patternsTask = Task {
+            let cached = try? Data(contentsOf: patternsFile)
+            if patterns.isEmpty, let cached {
+                patterns = await compilePatterns(cached)
+            }
+            guard let url = server?.appendingPathComponent("patterns") else { return }
+            var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+            if cached != nil, let etag = UserDefaults.standard.string(forKey: patternsETagKey) {
+                request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+            }
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  let http = response as? HTTPURLResponse, http.statusCode == 200,
+                  !Task.isCancelled
+            else { return }
+            let compiled = await compilePatterns(data)
+            guard !compiled.isEmpty, !Task.isCancelled else { return }
+            patterns = compiled
+            try? data.write(to: patternsFile, options: .atomic)
+            UserDefaults.standard.set(http.value(forHTTPHeaderField: "ETag"), forKey: patternsETagKey)
         }
     }
 
@@ -70,9 +104,6 @@ enum VideoPlayer {
         }
         guard let result = await check(url, deep: false, timeout: 1.5) else { return .other }
         remember(result, for: url)
-        if result.video, let pattern = result.pattern {
-            learn(pattern, from: url)
-        }
         let kind: LinkKind = result.video ? .video : .other
         results[url] = kind
         return kind
@@ -95,7 +126,6 @@ enum VideoPlayer {
         results[link] = reason == "error" ? .failed : .other
         if reason == "no-media" {
             rememberNoMedia(link)
-            forgetPatterns(matching: link)
         }
     }
 
@@ -123,47 +153,17 @@ enum VideoPlayer {
         return mixedHosts.contains { host == $0 || host.hasSuffix("." + $0) }
     }
 
-    static func playerRedirected(to target: URL, from link: URL) {
-        guard target == link || target == resolved[link] else { return }
-        markNoVideo(link, reason: "no-media")
-    }
-
-    private static func forgetPatterns(matching link: URL) {
-        let text = link.absoluteString
-        let range = NSRange(text.startIndex..., in: text)
-        let stale = patterns.filter { $0.firstMatch(in: text, options: .anchored, range: range) != nil }.map(\.pattern)
-        guard !stale.isEmpty else { return }
-        for pattern in stale {
-            learned[pattern] = nil
-        }
-        patterns.removeAll { stale.contains($0.pattern) }
-        UserDefaults.standard.set(learned, forKey: patternsKey)
-    }
-
     private static func matchesPattern(_ url: URL) -> Bool {
         let text = url.absoluteString
         let range = NSRange(text.startIndex..., in: text)
         return patterns.contains { $0.firstMatch(in: text, options: .anchored, range: range) != nil }
     }
 
-    private static func learn(_ pattern: String, from url: URL) {
-        guard learned[pattern] == nil, !isMixed(url),
-              let expression = try? NSRegularExpression(pattern: pattern)
-        else { return }
-        let text = url.absoluteString
-        guard expression.firstMatch(in: text, options: .anchored, range: NSRange(text.startIndex..., in: text)) != nil else { return }
-        if learned.count >= maxPatterns, let oldest = learned.min(by: { $0.value < $1.value })?.key {
-            learned[oldest] = nil
-            patterns.removeAll { $0.pattern == oldest }
-        }
-        learned[pattern] = Date()
-        patterns.append(expression)
-        UserDefaults.standard.set(learned, forKey: patternsKey)
-    }
-
-    private static func loadPatterns() -> [String: Date] {
-        let stored = UserDefaults.standard.dictionary(forKey: patternsKey) as? [String: Date] ?? [:]
-        return stored.filter { $0.value.timeIntervalSinceNow > -patternLifetime }
+    private nonisolated static func compilePatterns(_ data: Data) async -> [NSRegularExpression] {
+        await Task.detached(priority: .utility) {
+            guard let list = try? JSONDecoder().decode(PatternList.self, from: data) else { return [] }
+            return list.patterns.compactMap { try? NSRegularExpression(pattern: $0) }
+        }.value
     }
 
     private static func known(_ url: URL) -> LinkKind? {
@@ -252,14 +252,12 @@ final class VideoPlayerController: UIViewController, WKNavigationDelegate, WKUID
     """
 
     private let url: URL
-    private let link: URL
     private var webView: WKWebView?
     private var touchingControls = false
     private var swipeToDismiss: SwipeToDismiss?
 
-    init(url: URL, link: URL) {
+    init(url: URL) {
         self.url = url
-        self.link = link
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .pageSheet
         sheetPresentationController?.detents = [.large()]
@@ -353,7 +351,6 @@ final class VideoPlayerController: UIViewController, WKNavigationDelegate, WKUID
             return
         }
         decisionHandler(.cancel)
-        VideoPlayer.playerRedirected(to: target, from: link)
         UIApplication.shared.open(target)
         dismiss(animated: true)
     }

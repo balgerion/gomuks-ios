@@ -42,6 +42,7 @@ final class Browser: NSObject, ObservableObject {
     func start() {
         guard !started else { return }
         started = true
+        VideoPlayer.refreshPatterns()
         guard let credentials else {
             needsSetup = true
             return
@@ -200,7 +201,7 @@ extension Browser {
         }
         Task {
             if await VideoPlayer.kind(of: url) == .video, let watch = VideoPlayer.watchURL(for: url) {
-                present(VideoPlayerController(url: watch, link: url))
+                present(VideoPlayerController(url: watch))
             } else {
                 UIApplication.shared.open(url, options: [:], completionHandler: nil)
             }
