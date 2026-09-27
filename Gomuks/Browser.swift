@@ -199,7 +199,7 @@ extension Browser {
             return
         }
         Task {
-            if let watch = await VideoPlayer.watchURL(for: url) {
+            if await VideoPlayer.kind(of: url) == .video, let watch = VideoPlayer.watchURL(for: url) {
                 present(VideoPlayerController(url: watch))
             } else {
                 UIApplication.shared.open(url, options: [:], completionHandler: nil)
@@ -373,8 +373,12 @@ extension Browser: WKScriptMessageHandler {
     }
 
     private func showImage(_ body: Any) {
-        guard let fields = body as? [String: Any],
-              let entries = fields["images"] as? [[String: Any]],
+        guard let fields = body as? [String: Any] else { return }
+        if let prefetch = fields["prefetch"] as? [String] {
+            VideoPlayer.prefetch(prefetch.compactMap(URL.init(string:)).filter { !isServer($0) })
+            return
+        }
+        guard let entries = fields["images"] as? [[String: Any]],
               let index = fields["index"] as? Int
         else { return }
         let images = entries.compactMap { entry -> ViewerImage? in
@@ -382,18 +386,33 @@ extension Browser: WKScriptMessageHandler {
             return ViewerImage(url: url, name: entry["alt"] as? String ?? "")
         }
         if let noVideo = (fields["noVideo"] as? String).flatMap(URL.init(string:)) {
-            VideoPlayer.markNoVideo(noVideo)
+            let reason = fields["reason"] as? String
+            VideoPlayer.markNoVideo(noVideo, reason: reason)
+            if reason == "error" {
+                UIApplication.shared.open(noVideo, options: [:], completionHandler: nil)
+                return
+            }
         }
         guard images.indices.contains(index), !showingImage else { return }
         showingImage = true
         let link = (fields["link"] as? String).flatMap(URL.init(string:))
         Task {
             defer { showingImage = false }
-            if let link, let player = await VideoPlayer.iframeURL(for: link),
-               let argument = try? JSONSerialization.data(withJSONObject: [player.absoluteString]),
-               let json = String(data: argument, encoding: .utf8) {
-                webView.evaluateJavaScript("window.__gomuksEmbedVideo(...\(json))", completionHandler: nil)
-                return
+            if let link {
+                switch await VideoPlayer.kind(of: link) {
+                case .video:
+                    if let player = VideoPlayer.iframeURL(for: link),
+                       let argument = try? JSONSerialization.data(withJSONObject: [player.absoluteString]),
+                       let json = String(data: argument, encoding: .utf8) {
+                        webView.evaluateJavaScript("window.__gomuksEmbedVideo(...\(json))", completionHandler: nil)
+                        return
+                    }
+                case .failed:
+                    UIApplication.shared.open(link, options: [:], completionHandler: nil)
+                    return
+                case .other:
+                    break
+                }
             }
             let cookies = await webView.configuration.websiteDataStore.httpCookieStore.allCookies()
             let configuration = URLSessionConfiguration.ephemeral

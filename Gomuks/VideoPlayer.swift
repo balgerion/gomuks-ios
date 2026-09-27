@@ -4,16 +4,39 @@ import WebKit
 
 @MainActor
 enum VideoPlayer {
+    enum LinkKind {
+        case video
+        case other
+        case failed
+    }
+
     private struct CheckResult: Decodable {
         let video: Bool
+        let reason: String?
+        let pattern: String?
     }
 
     private static let key = "player_url"
+    private static let patternsKey = "video_patterns"
+    private static let noMediaKey = "no_media_links"
+    private static let noMediaLifetime: TimeInterval = 7 * 24 * 60 * 60
+    private static let patternLifetime: TimeInterval = 30 * 24 * 60 * 60
+    private static let maxPatterns = 200
+    private static let maxConcurrentChecks = 2
     private static let videoHosts = [
         "youtube.com", "youtu.be", "youtube-nocookie.com", "vimeo.com", "tiktok.com",
         "twitch.tv", "dailymotion.com", "dai.ly", "streamable.com",
     ]
-    private static var checked: [URL: Bool] = [:]
+    private static let mixedHosts = [
+        "x.com", "twitter.com", "instagram.com", "reddit.com", "redd.it",
+        "facebook.com", "fb.watch", "tumblr.com", "bsky.app", "imgur.com", "pinterest.com", "pin.it",
+    ]
+    private static var results: [URL: LinkKind] = [:]
+    private static var checks: [URL: Task<LinkKind?, Never>] = [:]
+    private static var queued: [URL] = []
+    private static var noMedia: [String: Date] = loadNoMedia()
+    private static var learned: [String: Date] = loadPatterns()
+    private static var patterns: [NSRegularExpression] = learned.keys.compactMap { try? NSRegularExpression(pattern: $0) }
 
     static var server: URL? {
         get {
@@ -24,15 +47,55 @@ enum VideoPlayer {
         }
     }
 
-    static func watchURL(for link: URL) async -> URL? {
-        await isVideoLink(link) ? playerURL(for: link, endpoint: "watch") : nil
+    static func watchURL(for link: URL) -> URL? {
+        playerURL(for: link, endpoint: "watch")
     }
 
-    static func iframeURL(for link: URL) async -> URL? {
-        await isVideoLink(link) ? playerURL(for: link, endpoint: "iframe") : nil
+    static func iframeURL(for link: URL) -> URL? {
+        playerURL(for: link, endpoint: "iframe")
     }
 
-    private static func playerURL(for link: URL, endpoint: String) -> URL? {
+    static func kind(of url: URL) async -> LinkKind {
+        guard isCheckable(url) else { return .other }
+        if let kind = known(url) {
+            return kind
+        }
+        if isMixed(url) {
+            return checks[url] != nil || isKnownVideoHost(url) ? .video : .other
+        }
+        if isKnownVideoHost(url) || matchesPattern(url) {
+            return .video
+        }
+        guard let result = await check(url, deep: false, timeout: 1.5) else { return .other }
+        if result.video, let pattern = result.pattern {
+            learn(pattern, from: url)
+        }
+        let kind: LinkKind = result.video ? .video : .other
+        results[url] = kind
+        return kind
+    }
+
+    static func prefetch(_ links: [URL]) {
+        var wanted: [URL] = []
+        for link in links where isCheckable(link) && isMixed(link) && checks[link] == nil && !wanted.contains(link) {
+            if let kind = known(link), kind != .failed {
+                continue
+            }
+            results[link] = nil
+            wanted.append(link)
+        }
+        queued = wanted
+        startQueued()
+    }
+
+    static func markNoVideo(_ link: URL, reason: String?) {
+        results[link] = reason == "error" ? .failed : .other
+        if reason == "no-media" {
+            rememberNoMedia(link)
+        }
+    }
+
+    private static func playerURL(for link: URL, endpoint: String, query: String = "") -> URL? {
         guard let server,
               var components = URLComponents(url: server, resolvingAgainstBaseURL: false)
         else { return nil }
@@ -42,35 +105,93 @@ enum VideoPlayer {
         }
         components.path = path + "/" + endpoint
         guard let encoded = link.absoluteString.uriComponentEncoded else { return nil }
-        components.percentEncodedQuery = "url=" + encoded
+        components.percentEncodedQuery = "url=" + encoded + query
         return components.url
     }
 
-    private static func isVideoLink(_ url: URL) async -> Bool {
-        guard server != nil, let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http" else { return false }
-        if let result = checked[url] {
-            return result
-        }
-        if isKnownVideoHost(url) {
-            return true
-        }
-        guard let result = await check(url) else { return false }
-        checked[url] = result
-        return result
+    private static func isCheckable(_ url: URL) -> Bool {
+        guard server != nil, let scheme = url.scheme?.lowercased() else { return false }
+        return scheme == "https" || scheme == "http"
     }
 
-    static func markNoVideo(_ link: URL) {
-        checked[link] = false
+    private static func isMixed(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return mixedHosts.contains { host == $0 || host.hasSuffix("." + $0) }
     }
 
-    private static func check(_ link: URL) async -> Bool? {
-        guard let url = playerURL(for: link, endpoint: "check") else { return nil }
-        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 1.5)
+    private static func matchesPattern(_ url: URL) -> Bool {
+        let text = url.absoluteString
+        let range = NSRange(text.startIndex..., in: text)
+        return patterns.contains { $0.firstMatch(in: text, options: .anchored, range: range) != nil }
+    }
+
+    private static func learn(_ pattern: String, from url: URL) {
+        guard learned[pattern] == nil, !isMixed(url),
+              let expression = try? NSRegularExpression(pattern: pattern)
+        else { return }
+        let text = url.absoluteString
+        guard expression.firstMatch(in: text, options: .anchored, range: NSRange(text.startIndex..., in: text)) != nil else { return }
+        if learned.count >= maxPatterns, let oldest = learned.min(by: { $0.value < $1.value })?.key {
+            learned[oldest] = nil
+            patterns.removeAll { $0.pattern == oldest }
+        }
+        learned[pattern] = Date()
+        patterns.append(expression)
+        UserDefaults.standard.set(learned, forKey: patternsKey)
+    }
+
+    private static func loadPatterns() -> [String: Date] {
+        let stored = UserDefaults.standard.dictionary(forKey: patternsKey) as? [String: Date] ?? [:]
+        return stored.filter { $0.value.timeIntervalSinceNow > -patternLifetime }
+    }
+
+    private static func known(_ url: URL) -> LinkKind? {
+        if let kind = results[url] {
+            return kind
+        }
+        if let date = noMedia[url.absoluteString], date.timeIntervalSinceNow > -noMediaLifetime {
+            return .other
+        }
+        return nil
+    }
+
+    private static func startQueued() {
+        while checks.count < maxConcurrentChecks, !queued.isEmpty {
+            let link = queued.removeFirst()
+            let task = Task { () -> LinkKind? in
+                let result = await check(link, deep: true, timeout: 10)
+                checks[link] = nil
+                startQueued()
+                guard let result else { return nil }
+                let kind: LinkKind = result.video ? .video : result.reason == "error" ? .failed : .other
+                results[link] = kind
+                if !result.video && result.reason == "no-media" {
+                    rememberNoMedia(link)
+                }
+                return kind
+            }
+            checks[link] = task
+        }
+    }
+
+    private static func check(_ link: URL, deep: Bool, timeout: TimeInterval) async -> CheckResult? {
+        guard let url = playerURL(for: link, endpoint: "check", query: deep ? "&deep=1" : "") else { return nil }
+        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
         guard let (data, response) = try? await URLSession.shared.data(for: request),
-              (response as? HTTPURLResponse)?.statusCode == 200,
-              let result = try? JSONDecoder().decode(CheckResult.self, from: data)
+              (response as? HTTPURLResponse)?.statusCode == 200
         else { return nil }
-        return result.video
+        return try? JSONDecoder().decode(CheckResult.self, from: data)
+    }
+
+    private static func loadNoMedia() -> [String: Date] {
+        let stored = UserDefaults.standard.dictionary(forKey: noMediaKey) as? [String: Date] ?? [:]
+        return stored.filter { $0.value.timeIntervalSinceNow > -noMediaLifetime }
+    }
+
+    private static func rememberNoMedia(_ link: URL) {
+        noMedia = noMedia.filter { $0.value.timeIntervalSinceNow > -noMediaLifetime }
+        noMedia[link.absoluteString] = Date()
+        UserDefaults.standard.set(noMedia, forKey: noMediaKey)
     }
 
     private static func isKnownVideoHost(_ url: URL) -> Bool {
