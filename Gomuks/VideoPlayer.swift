@@ -14,6 +14,7 @@ enum VideoPlayer {
         let video: Bool
         let reason: String?
         let pattern: String?
+        let url: String?
     }
 
     private static let key = "player_url"
@@ -32,6 +33,7 @@ enum VideoPlayer {
         "facebook.com", "fb.watch", "tumblr.com", "bsky.app", "imgur.com", "pinterest.com", "pin.it",
     ]
     private static var results: [URL: LinkKind] = [:]
+    private static var resolved: [URL: URL] = [:]
     private static var checks: [URL: Task<LinkKind?, Never>] = [:]
     private static var queued: [URL] = []
     private static var noMedia: [String: Date] = loadNoMedia()
@@ -48,11 +50,11 @@ enum VideoPlayer {
     }
 
     static func watchURL(for link: URL) -> URL? {
-        playerURL(for: link, endpoint: "watch")
+        playerURL(for: resolved[link] ?? link, endpoint: "watch")
     }
 
     static func iframeURL(for link: URL) -> URL? {
-        playerURL(for: link, endpoint: "iframe")
+        playerURL(for: resolved[link] ?? link, endpoint: "iframe")
     }
 
     static func kind(of url: URL) async -> LinkKind {
@@ -67,6 +69,7 @@ enum VideoPlayer {
             return .video
         }
         guard let result = await check(url, deep: false, timeout: 1.5) else { return .other }
+        remember(result, for: url)
         if result.video, let pattern = result.pattern {
             learn(pattern, from: url)
         }
@@ -163,6 +166,7 @@ enum VideoPlayer {
                 checks[link] = nil
                 startQueued()
                 guard let result else { return nil }
+                remember(result, for: link)
                 let kind: LinkKind = result.video ? .video : result.reason == "error" ? .failed : .other
                 results[link] = kind
                 if !result.video && result.reason == "no-media" {
@@ -181,6 +185,12 @@ enum VideoPlayer {
               (response as? HTTPURLResponse)?.statusCode == 200
         else { return nil }
         return try? JSONDecoder().decode(CheckResult.self, from: data)
+    }
+
+    private static func remember(_ result: CheckResult, for link: URL) {
+        if let canonical = result.url.flatMap(URL.init(string:)), canonical != link {
+            resolved[link] = canonical
+        }
     }
 
     private static func loadNoMedia() -> [String: Date] {
