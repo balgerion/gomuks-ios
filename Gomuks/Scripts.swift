@@ -219,13 +219,20 @@ enum MediaScript {
             const box = preview.querySelector("div.media-container");
             return box ? parseFloat(box.style.width) / parseFloat(box.style.height) : NaN;
         };
-        const shapePreview = (preview) => {
-            const ratio = previewRatio(preview);
-            if (ratio > 0) {
-                preview.dataset.iosShape = ratio < 1 ? "portrait" : "landscape";
+        const timelineViews = document.getElementsByClassName("timeline-view");
+        const shapePreviews = (previews) => {
+            const pinned = [...timelineViews].filter((view) => view.scrollHeight - view.scrollTop - view.clientHeight < 2);
+            for (const preview of previews) {
+                const ratio = previewRatio(preview);
+                if (ratio > 0) {
+                    preview.dataset.iosShape = ratio < 1 ? "portrait" : "landscape";
+                }
+            }
+            for (const view of pinned) {
+                view.scrollTop = view.scrollHeight;
             }
         };
-        const watchTimeline = (node) => {
+        const watchTimeline = (node, previews) => {
             if (node.nodeType !== Node.ELEMENT_NODE) {
                 return;
             }
@@ -239,17 +246,22 @@ enum MediaScript {
                 }
             }
             const owner = inTimeline ? node.parentElement?.closest("div.url-preview") : null;
-            for (const preview of owner ? [owner] : find("div.url-preview")) {
-                shapePreview(preview);
+            previews.push(...(owner ? [owner] : find("div.url-preview")));
+        };
+        const watchNodes = (nodes) => {
+            const previews = [];
+            for (const node of nodes) {
+                watchTimeline(node, previews);
+            }
+            if (previews.length) {
+                shapePreviews(previews);
             }
         };
         mutationHandlers.push((mutations) => {
-            for (const mutation of mutations) {
-                mutation.addedNodes.forEach(watchTimeline);
-            }
+            watchNodes(mutations.flatMap((mutation) => [...mutation.addedNodes]));
         });
         document.addEventListener("scroll", schedulePrefetch, { capture: true, passive: true });
-        watchTimeline(document.body);
+        watchNodes([document.body]);
         const fullSource = (img) => new URL(img.getAttribute("data-full-src") || img.src, location.href).href;
         const pushState = history.pushState.bind(history);
         history.pushState = (state, unused, url) => {
