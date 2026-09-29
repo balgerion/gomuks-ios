@@ -44,6 +44,8 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>gomuks uses the camera for calls and for taking photos to send.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>gomuks connects to your gomuks server on the local network.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>gomuks uses the microphone for calls and voice messages.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
