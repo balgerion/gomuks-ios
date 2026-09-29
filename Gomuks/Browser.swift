@@ -25,13 +25,7 @@ final class Browser: NSObject, ObservableObject {
         contentController.add(self, name: SettingsButton.messageName)
         contentController.add(self, name: MediaScript.messageName)
         contentController.addUserScript(
-            WKUserScript(source: SettingsButton.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
-        )
-        contentController.addUserScript(
-            WKUserScript(source: TimelineScroll.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
-        )
-        contentController.addUserScript(
-            WKUserScript(source: MediaScript.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+            WKUserScript(source: PageScript.source, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
         )
         contentController.addUserScript(
             WKUserScript(source: InlineVideoScript.script(subframesOnly: true), injectionTime: .atDocumentStart, forMainFrameOnly: false)
@@ -125,7 +119,7 @@ final class Browser: NSObject, ObservableObject {
             "Basic " + Data("\(credentials.username):\(credentials.password)".utf8).base64EncodedString(),
             forHTTPHeaderField: "Authorization"
         )
-        let session = URLSession(configuration: .ephemeral)
+        let session = URLSession(configuration: .waitingEphemeral())
         defer { session.finishTasksAndInvalidate() }
         do {
             let (_, response) = try await session.data(for: request)
@@ -372,6 +366,10 @@ extension Browser: WKScriptMessageHandler {
         }
     }
 
+    private func embedVideo(_ json: String) {
+        webView.evaluateJavaScript("window.__gomuksEmbedVideo(...\(json))", completionHandler: nil)
+    }
+
     private func showImage(_ body: Any) {
         guard let fields = body as? [String: Any] else { return }
         if let prefetch = fields["prefetch"] as? [String] {
@@ -404,7 +402,7 @@ extension Browser: WKScriptMessageHandler {
                     if let player = VideoPlayer.iframeURL(for: link),
                        let argument = try? JSONSerialization.data(withJSONObject: [player.absoluteString]),
                        let json = String(data: argument, encoding: .utf8) {
-                        webView.evaluateJavaScript("window.__gomuksEmbedVideo(...\(json))", completionHandler: nil)
+                        embedVideo(json)
                         return
                     }
                 case .failed:
@@ -415,7 +413,7 @@ extension Browser: WKScriptMessageHandler {
                 }
             }
             let cookies = await webView.configuration.websiteDataStore.httpCookieStore.allCookies()
-            let configuration = URLSessionConfiguration.ephemeral
+            let configuration = URLSessionConfiguration.waitingEphemeral()
             for cookie in cookies {
                 configuration.httpCookieStorage?.setCookie(cookie)
             }
@@ -433,6 +431,15 @@ extension String {
 
     var uriComponentEncoded: String? {
         addingPercentEncoding(withAllowedCharacters: Self.uriComponentAllowed)
+    }
+}
+
+extension URLSessionConfiguration {
+    static func waitingEphemeral() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.waitsForConnectivity = true
+        configuration.timeoutIntervalForResource = 30
+        return configuration
     }
 }
 

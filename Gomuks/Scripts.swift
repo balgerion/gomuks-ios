@@ -1,3 +1,19 @@
+enum PageScript {
+    static let source = """
+    (() => {
+        const mutationHandlers = [];
+    \(SettingsButton.script)
+    \(TimelineScroll.script)
+    \(MediaScript.script)
+        new MutationObserver((mutations) => {
+            for (const handler of mutationHandlers) {
+                handler(mutations);
+            }
+        }).observe(document.body, { childList: true, subtree: true });
+    })();
+    """
+}
+
 enum SettingsButton {
     static let messageName = "gomuksSettings"
 
@@ -18,7 +34,7 @@ enum SettingsButton {
                 wrapper.appendChild(button);
             }
         };
-        new MutationObserver(insert).observe(document.body, { childList: true, subtree: true });
+        mutationHandlers.push(insert);
         insert();
     })();
     """
@@ -49,7 +65,7 @@ enum TimelineScroll {
                 }
             }
         };
-        new MutationObserver(attach).observe(document.body, { childList: true, subtree: true });
+        mutationHandlers.push(attach);
         attach();
     })();
     """
@@ -182,11 +198,11 @@ enum MediaScript {
                 shapePreview(preview);
             }
         };
-        new MutationObserver((mutations) => {
+        mutationHandlers.push((mutations) => {
             for (const mutation of mutations) {
                 mutation.addedNodes.forEach(watchTimeline);
             }
-        }).observe(document.body, { childList: true, subtree: true });
+        });
         document.addEventListener("scroll", schedulePrefetch, { capture: true, passive: true });
         watchTimeline(document.body);
         const fullSource = (img) => new URL(img.getAttribute("data-full-src") || img.src, location.href).href;

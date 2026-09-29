@@ -16,7 +16,7 @@ final class ImageViewerController: UIViewController, UIPageViewControllerDataSou
         navigationOrientation: .vertical,
         options: [.interPageSpacing: 16]
     )
-    private let shareButton = UIButton(type: .system)
+    private let shareButton = UIButton.overlay(systemName: "square.and.arrow.up")
     private let counter = UILabel()
     private var swipeToDismiss: SwipeToDismiss?
 
@@ -56,17 +56,13 @@ final class ImageViewerController: UIViewController, UIPageViewControllerDataSou
         pager.didMove(toParent: self)
         pager.setViewControllers([page(at: startIndex)], direction: .forward, animated: false)
 
-        let closeButton = UIButton(type: .system)
-        closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
-        closeButton.tintColor = .white
+        let closeButton = UIButton.overlay(systemName: "xmark")
         closeButton.accessibilityLabel = "Close"
         closeButton.accessibilityIdentifier = "gomuks-image-viewer-close"
         closeButton.addTarget(self, action: #selector(close), for: .touchUpInside)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(closeButton)
 
-        shareButton.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
-        shareButton.tintColor = .white
         shareButton.accessibilityLabel = "Share"
         shareButton.addTarget(self, action: #selector(share), for: .touchUpInside)
         shareButton.translatesAutoresizingMaskIntoConstraints = false
@@ -166,6 +162,8 @@ final class ImageViewerController: UIViewController, UIPageViewControllerDataSou
 }
 
 final class ImagePageController: UIViewController, UIScrollViewDelegate {
+    private nonisolated static let maxPixelSize = 4096
+
     let index: Int
     let name: String
     private(set) var data: Data?
@@ -250,11 +248,12 @@ final class ImagePageController: UIViewController, UIScrollViewDelegate {
     private nonisolated static func decode(_ data: Data) -> UIImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let count = CGImageSourceGetCount(source)
-        guard count > 1 else { return UIImage(data: data) }
+        guard count > 1 else { return decodeStill(data, source: source) }
+        let frameOptions = [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
         var frames: [UIImage] = []
         var duration = 0.0
         for index in 0..<count {
-            guard let frame = CGImageSourceCreateImageAtIndex(source, index, nil) else { continue }
+            guard let frame = CGImageSourceCreateImageAtIndex(source, index, frameOptions) else { continue }
             frames.append(UIImage(cgImage: frame))
             let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
             let gif = properties?[kCGImagePropertyGIFDictionary] as? [CFString: Any]
@@ -264,6 +263,22 @@ final class ImagePageController: UIViewController, UIScrollViewDelegate {
             duration += delay < 0.02 ? 0.1 : delay
         }
         return UIImage.animatedImage(with: frames, duration: duration)
+    }
+
+    private nonisolated static func decodeStill(_ data: Data, source: CGImageSource) -> UIImage? {
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let width = properties?[kCGImagePropertyPixelWidth] as? Int ?? 0
+        let height = properties?[kCGImagePropertyPixelHeight] as? Int ?? 0
+        guard max(width, height) > maxPixelSize else {
+            return UIImage(data: data)?.preparingForDisplay()
+        }
+        let options = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ] as CFDictionary
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options).map { UIImage(cgImage: $0) }
     }
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? {
@@ -342,5 +357,20 @@ final class SwipeToDismiss: NSObject, UIGestureRecognizerDelegate {
         default:
             break
         }
+    }
+}
+
+extension UIButton {
+    static func overlay(systemName: String) -> UIButton {
+        let image = UIImage(systemName: systemName)
+        if #available(iOS 26, *) {
+            var configuration = UIButton.Configuration.glass()
+            configuration.image = image
+            return UIButton(configuration: configuration)
+        }
+        let button = UIButton(type: .system)
+        button.setImage(image, for: .normal)
+        button.tintColor = .white
+        return button
     }
 }

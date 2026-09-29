@@ -68,7 +68,9 @@ enum VideoPlayer {
             if cached != nil, let etag = UserDefaults.standard.string(forKey: patternsETagKey) {
                 request.setValue(etag, forHTTPHeaderField: "If-None-Match")
             }
-            guard let (data, response) = try? await URLSession.shared.data(for: request),
+            let session = URLSession(configuration: .waitingEphemeral())
+            defer { session.finishTasksAndInvalidate() }
+            guard let (data, response) = try? await session.data(for: request),
                   let http = response as? HTTPURLResponse, http.statusCode == 200,
                   !Task.isCancelled
             else { return }
@@ -291,9 +293,7 @@ final class VideoPlayerController: UIViewController, WKNavigationDelegate, WKUID
         view.addSubview(webView)
         self.webView = webView
 
-        let closeButton = UIButton(type: .system)
-        closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
-        closeButton.tintColor = .white
+        let closeButton = UIButton.overlay(systemName: "xmark")
         closeButton.accessibilityLabel = "Close"
         closeButton.accessibilityIdentifier = "gomuks-video-player-close"
         closeButton.addTarget(self, action: #selector(close), for: .touchUpInside)
