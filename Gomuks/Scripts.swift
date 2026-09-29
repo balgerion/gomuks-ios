@@ -49,14 +49,18 @@ enum TimelineScroll {
         const style = document.createElement("style");
         style.textContent = "button.ios-jump-latest { position: fixed; z-index: 50; display: none; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border-radius: 12px; border: 1px solid var(--border-color, rgba(128, 128, 128, .4)); background: var(--background-color, #1e1f22); color: var(--text-color, currentColor); box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }";
         document.head.appendChild(style);
-        const placeJumpButton = (view) => {
+        const placeJumpButton = (view, moved) => {
             const button = jumpButtons.get(view);
             if (!button) {
                 return;
             }
             const far = view.scrollHeight - view.scrollTop - view.clientHeight > view.clientHeight * 1.5;
-            button.style.display = far ? "flex" : "none";
-            if (far) {
+            if (far !== button.far) {
+                button.far = far;
+                button.style.display = far ? "flex" : "none";
+                moved = far;
+            }
+            if (far && moved) {
                 const rect = view.getBoundingClientRect();
                 button.style.right = (innerWidth - rect.right + 16) + "px";
                 button.style.bottom = (innerHeight - rect.bottom + 16) + "px";
@@ -76,7 +80,7 @@ enum TimelineScroll {
                     pending = true;
                     requestAnimationFrame(() => {
                         pending = false;
-                        placeJumpButton(view);
+                        placeJumpButton(view, false);
                     });
                 }
             }, { passive: true });
@@ -91,7 +95,7 @@ enum TimelineScroll {
                     && view.scrollTop + previous + 1 >= view.scrollHeight) {
                     view.scrollTop = view.scrollHeight;
                 }
-                placeJumpButton(view);
+                placeJumpButton(view, true);
             }
         });
         const views = document.getElementsByClassName("timeline-view");
