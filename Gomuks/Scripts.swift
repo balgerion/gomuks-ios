@@ -63,7 +63,7 @@ enum TimelineScroll {
             if (far && moved) {
                 const rect = view.getBoundingClientRect();
                 button.style.right = (innerWidth - rect.right + 16) + "px";
-                button.style.bottom = (innerHeight - rect.bottom + 16) + "px";
+                button.style.bottom = (innerHeight - rect.bottom + 24) + "px";
             }
         };
         const addJumpButton = (view) => {
