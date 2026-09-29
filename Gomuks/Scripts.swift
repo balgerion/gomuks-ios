@@ -44,6 +44,43 @@ enum TimelineScroll {
     static let script = """
     (() => {
         const heights = new WeakMap();
+        const jumpButtons = new Map();
+        const arrow = '<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor"><path d="M440-800v487L216-537l-56 57 320 320 320-320-56-57-224 224v-487h-80Z"/></svg>';
+        const style = document.createElement("style");
+        style.textContent = "button.ios-jump-latest { position: fixed; z-index: 50; display: none; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border-radius: 12px; border: 1px solid var(--border-color, rgba(128, 128, 128, .4)); background: var(--background-color, #1e1f22); color: var(--text-color, currentColor); box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }";
+        document.head.appendChild(style);
+        const placeJumpButton = (view) => {
+            const button = jumpButtons.get(view);
+            if (!button) {
+                return;
+            }
+            const far = view.scrollHeight - view.scrollTop - view.clientHeight > view.clientHeight * 1.5;
+            button.style.display = far ? "flex" : "none";
+            if (far) {
+                const rect = view.getBoundingClientRect();
+                button.style.right = (innerWidth - rect.right + 16) + "px";
+                button.style.bottom = (innerHeight - rect.bottom + 16) + "px";
+            }
+        };
+        const addJumpButton = (view) => {
+            const button = document.createElement("button");
+            button.className = "ios-jump-latest";
+            button.title = "Jump to latest";
+            button.innerHTML = arrow;
+            button.addEventListener("click", () => view.scrollTo({ top: view.scrollHeight, behavior: "smooth" }));
+            document.body.appendChild(button);
+            jumpButtons.set(view, button);
+            let pending = false;
+            view.addEventListener("scroll", () => {
+                if (!pending) {
+                    pending = true;
+                    requestAnimationFrame(() => {
+                        pending = false;
+                        placeJumpButton(view);
+                    });
+                }
+            }, { passive: true });
+        };
         const resizeObserver = new ResizeObserver((entries) => {
             for (const entry of entries) {
                 const view = entry.target;
@@ -54,14 +91,22 @@ enum TimelineScroll {
                     && view.scrollTop + previous + 1 >= view.scrollHeight) {
                     view.scrollTop = view.scrollHeight;
                 }
+                placeJumpButton(view);
             }
         });
         const views = document.getElementsByClassName("timeline-view");
         const attach = () => {
+            for (const [view, button] of jumpButtons) {
+                if (!view.isConnected) {
+                    button.remove();
+                    jumpButtons.delete(view);
+                }
+            }
             for (const view of views) {
                 if (!heights.has(view)) {
                     heights.set(view, view.clientHeight);
                     resizeObserver.observe(view);
+                    addJumpButton(view);
                 }
             }
         };
