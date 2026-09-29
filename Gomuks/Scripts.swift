@@ -110,7 +110,22 @@ enum TimelineScroll {
                 }
             }
         };
-        mutationHandlers.push(attach);
+        const followSent = (mutations) => {
+            for (const mutation of mutations) {
+                for (const node of mutation.addedNodes) {
+                    if (node.nodeType === Node.ELEMENT_NODE && node.matches("div.timeline-event") && node.querySelector(".event-send-status.sending")) {
+                        const view = node.closest("div.timeline-view");
+                        if (view) {
+                            view.scrollTop = view.scrollHeight;
+                        }
+                    }
+                }
+            }
+        };
+        mutationHandlers.push((mutations) => {
+            attach();
+            followSent(mutations);
+        });
         attach();
     })();
     """
