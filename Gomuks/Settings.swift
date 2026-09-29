@@ -13,9 +13,9 @@ struct SetupView: View {
     init(browser: Browser) {
         self.browser = browser
         let credentials = browser.credentials
-        _server = State(initialValue: credentials?.server.absoluteString ?? "")
-        _username = State(initialValue: credentials?.username ?? "")
-        _password = State(initialValue: credentials?.password ?? "")
+        server = credentials?.server.absoluteString ?? ""
+        username = credentials?.username ?? ""
+        password = credentials?.password ?? ""
     }
 
     var body: some View {
@@ -46,7 +46,7 @@ struct SetupView: View {
                             VideoPlayer.server = URL(serverAddress: value)
                         }
                 } header: {
-                    Text("Video player")
+                    Text("Video Player")
                 } footer: {
                     Text("yt-dlp web player for video links. Leave empty to open links in the browser.")
                 }
@@ -77,8 +77,16 @@ struct SetupView: View {
             .toolbar {
                 if browser.credentials != nil {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") {
-                            browser.dismissSetup()
+                        if #available(iOS 26, *) {
+                            Button(role: .close) {
+                                browser.dismissSetup()
+                            }
+                            .accessibilityIdentifier("gomuks-setup-close")
+                        } else {
+                            Button("Cancel") {
+                                browser.dismissSetup()
+                            }
+                            .accessibilityIdentifier("gomuks-setup-close")
                         }
                     }
                 }

@@ -38,7 +38,7 @@ final class GomuksUITests: XCTestCase {
         settings.tap()
         wait(connect, 10, app)
         attach(app, "settings")
-        app.buttons["Cancel"].tap()
+        app.buttons["gomuks-setup-close"].tap()
         wait(mainRoom, 10, app)
 
         let opened = Date()
