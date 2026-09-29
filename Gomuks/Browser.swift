@@ -4,7 +4,6 @@ import WebKit
 @MainActor
 final class Browser: NSObject, ObservableObject {
     static let shared = Browser()
-    static let defaultServer = "https://gomuks.balgeriada.com"
 
     @Published var needsSetup = false
     @Published private(set) var setupError: String?

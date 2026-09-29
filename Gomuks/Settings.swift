@@ -13,7 +13,7 @@ struct SetupView: View {
     init(browser: Browser) {
         self.browser = browser
         let credentials = browser.credentials
-        _server = State(initialValue: credentials?.server.absoluteString ?? Browser.defaultServer)
+        _server = State(initialValue: credentials?.server.absoluteString ?? "")
         _username = State(initialValue: credentials?.username ?? "")
         _password = State(initialValue: credentials?.password ?? "")
     }
